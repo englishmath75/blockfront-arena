@@ -1,3 +1,4 @@
+import { meleeTracks } from './melee-motion.js';
 import shapes from './grip-shapes.json' with { type: 'json' };
 import { motionAction } from './weapon-motion.js';
 import filmedPaths from './rig-paths.json' with { type:'json' };
@@ -31,6 +32,7 @@ const performances={
     inspect:[[0,0,0,0,0],[.13,.29,.54,-.3,.4],[.23,.82,.78,.18,.46],[.47,.92,.82,.28,.34],[.66,-.13,.66,-.29,.24],[.88,-.16,.65,-.33,.29],[1,0,0,0,0]],
     reload:[[0,0,0,0,0],[.20,-.48,.57,.42,.83],[.38,-.81,.88,-.65,-.59],[.55,-.55,.54,.44,.8],[.71,-.66,.71,-.14,.31],[.85,.19,.64,-.37,-.21],[1,0,0,0,0]]},
   rogue:{
+    equip:[[0,0,0,0,0],[.14,.23,.44,-.37,-.39],[.33,.56,.81,.31,.52],[.52,.68,.94,.42,.72],[.70,.62,.83,-.64,.88],[.84,.18,.44,-.41,.24],[1,0,0,0,0]],
     inspect:[[0,0,0,0,0],[.18,.5,.44,.26,.45],[.43,.74,.52,.34,.49],[.58,.98,.62,.81,-.36],[.76,-.82,.68,-.54,-.76],[.85,-.71,.59,-.42,.16],[1,0,0,0,0]],
     reload:[[0,0,0,0,0],[.13,.39,.32,-.63,-.59],[.27,.54,.74,-.28,.71],[.44,.51,.48,.43,-.69],[.62,.69,.95,-.69,.89],[.78,.34,.83,.48,-.38],[1,0,0,0,0]]},
   singularityep9:{
@@ -70,7 +72,7 @@ export function handlingTracks(gun, skin) {
       ];
     });
   }
-  return { inspect:fit(custom?.inspect??inspect[display],'inspect'),
+  return { ...(custom?.equip?{equip:fit(custom.equip,'equip')}:{}), ...(gun==='melee' ? meleeTracks(skin,balance,depth) : {}), inspect:fit(custom?.inspect??inspect[display],'inspect'),
     reload:gun==='melee'?undefined:fit(custom?.reload??reload[load],'reload'),
     capture:{inspect:filmedPaths[recordedAction(skin,'inspect')?.key],reload:filmedPaths[recordedAction(skin,'reload')?.key]},
     point:display==='trace', balance, grip };

@@ -11,6 +11,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
 import timing from './ability-times.json' with { type: 'json' };
 import library from './model-index.json' with { type: 'json' };
+import { WEAPONS } from './rules.js';
+import { sleeveEdges,frameGun } from './viewmodel-pose.js';
 const korean = [
   '아스트라',
   '브리치',
@@ -107,7 +109,7 @@ function boundsFor(g,model) {
   if(!propBounds.has(g))propBounds.set(g,new T.Box3().setFromObject(model,true));
   return propBounds.get(g);
 }
-export function attachProp(parent, slug, size) {
+export function attachProp(parent, slug, size, animated=false) {
   if (!library.models[slug]) return;
   return asset(slug)
     .then((g) => {
@@ -115,13 +117,24 @@ export function attachProp(parent, slug, size) {
       const model = cloneRig(g.scene),
         b = boundsFor(g,model),
         s = b.getSize(new T.Vector3()),
-        k = size / Math.max(s.x, s.y, s.z, 0.001);
+        k = size / (slug==='wingman'?Math.max(.001,s.y):Math.max(s.x,s.y,s.z,.001));
       model.scale.multiplyScalar(k);
       model.position.sub(b.getCenter(new T.Vector3()).multiplyScalar(k));
       const pivot = new T.Group();
+      if(slug==='wingman' || slug==='stealth-drone')pivot.rotation.y=Math.PI;
       pivot.add(model);
       parent.add(pivot);
       parent.userData.prop = pivot;
+      if(animated && g.animations.length){
+        const mixer=new T.AnimationMixer(model);
+        let action;
+        parent.userData.animateProp=(suffix,time)=>{
+          const clip=g.animations.find(c=>c.name.endsWith(suffix))??g.animations.find(c=>c.name==='Idle');
+          if(!clip)return;
+          if(action?.getClip()!==clip){action?.stop();action=mixer.clipAction(clip);action.reset().play();action.paused=true}
+          action.time=Math.max(0,time)%Math.max(.01,clip.duration);mixer.update(0);
+        };
+      }
       if (parent.isMesh) parent.material.visible = false;
     })
     .catch(() => {});
@@ -283,6 +296,51 @@ async function applyAppearance(root, skin) {
   root.traverse(mesh=>{if(mesh.isMesh)mesh.material=Array.isArray(mesh.material)?mesh.material.map(recolor):recolor(mesh.material)});
   return ()=>{for(const m of materials.values())m.dispose();lut.dispose()};
 }
+let carousel;
+export function previewWeapon(canvas,gun,skin){
+  if(!canvas){if(carousel){carousel.ticket++;carousel.clean?.();carousel.renderer.dispose();carousel.renderer.forceContextLoss();carousel=null}return}
+  if(!carousel){
+    const renderer=new T.WebGLRenderer({antialias:true,alpha:true,powerPreference:'low-power'});
+    renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
+    carousel={renderer,ticket:0};
+  }
+  const viewer=carousel,ticket=++viewer.ticket;viewer.clean?.();
+  const renderer=viewer.renderer;canvas.append(renderer.domElement);
+  const scene=new T.Scene(),camera=new T.PerspectiveCamera(31,1,.01,40),pivot=new T.Group();
+  scene.add(pivot,new T.HemisphereLight(0xfffaf0,0x8ba7b4,2.1));
+  const light=new T.DirectionalLight(0xfff4d9,2.1);light.position.set(-1,3,3);scene.add(light);
+  let cleanup,model,drag;
+  const extents=new T.Vector3(.9,.28,.22),bounds=new T.Box3(),rotation=new T.Matrix4();
+  const draw=()=>{if(viewer.ticket!==ticket)return;
+    const w=canvas.clientWidth,h=canvas.clientHeight;if(!w||!h)return;
+    renderer.setSize(w,h,false);camera.aspect=w/h;
+    const tan=Math.tan(camera.fov*Math.PI/360);
+    rotation.makeRotationFromEuler(pivot.rotation);
+    bounds.min.copy(extents).negate();bounds.max.copy(extents);bounds.applyMatrix4(rotation);
+    camera.position.z=bounds.max.z+1.14*Math.max(bounds.max.x/(tan*camera.aspect),bounds.max.y/tan);
+    camera.updateProjectionMatrix();renderer.render(scene,camera)};
+  const resize=new ResizeObserver(draw);resize.observe(canvas);
+  renderer.domElement.onpointerdown=e=>{drag=[e.clientX,e.clientY];renderer.domElement.setPointerCapture(e.pointerId)};
+  renderer.domElement.onpointermove=e=>{if(!drag)return;pivot.rotation.y+=(e.clientX-drag[0])*.009;pivot.rotation.x=T.MathUtils.clamp(pivot.rotation.x+(e.clientY-drag[1])*.008,-1.3,1.3);drag=[e.clientX,e.clientY];draw()};
+  renderer.domElement.onpointerup=renderer.domElement.onpointercancel=()=>{drag=null};
+  viewer.clean=()=>{resize.disconnect();cleanup?.();model?.traverse(o=>{if(o.isSkinnedMesh)o.skeleton.dispose()});scene.clear()};
+  void (async()=>{
+    const gltf=await asset(modelKey(gun,skin));if(ticket!==viewer.ticket)return;
+    model=cloneRig(gltf.scene);
+    if(skin)cleanup=await applyAppearance(model,skin);
+    if(ticket!==viewer.ticket){cleanup?.();return}
+    model.updateMatrixWorld(true);
+    const box=new T.Box3();
+    model.traverseVisible(o=>{if(o.isMesh && [o.material].flat().some(m=>m.visible))box.expandByObject(o,true)});
+    if(box.isEmpty())return;
+    box.getSize(extents).multiplyScalar(.5);
+    model.position.sub(box.getCenter(new T.Vector3()));pivot.add(model);
+    pivot.rotation.set(.08,muzzleAtMinX(model)?-.14:Math.PI+.14,-.045);
+    draw();
+    // Textures resolve separately from the mesh. Draw them once ready as well.
+    for(let i=0;i<8 && ticket===viewer.ticket;i++){await new Promise(r=>setTimeout(r,240));draw()}
+  })().catch(()=>{if(viewer.ticket===ticket)canvas.textContent='모델을 불러올 수 없습니다.'});
+}
 const utilityItems = {
   '잠입 드론': 'stealth-drone',
   '올빼미 드론': 'owl-drone',
@@ -327,6 +385,20 @@ const utilityItems = {
   '인도하는 빛': 'guiding-light-trinket',
   정찰자: 'trailblazer-trinket',
 };
+export async function warmLoadout(items){
+  const ids=new Set();
+  for(const [gun,skin] of items){
+    const id=modelKey(gun,skin),spec=library.models[id];
+    if(!spec)continue;
+    ids.add(id);
+    const actions=skin?.motionOn===false ? library.models[gun]?.actions : spec.actions??library.models[gun]?.actions;
+    for(const action of Object.values(actions??{})){
+      if(action.armFile)ids.add(action.armFile);
+      if(action.gunFile)ids.add(action.gunFile);
+    }
+  }
+  await Promise.allSettled([...ids].map(asset));
+}
 export function firstPerson() {
   const scene = new T.Scene(),
     cam = new T.PerspectiveCamera(48, 1, 0.007, 12);
@@ -353,7 +425,7 @@ export function firstPerson() {
     model.rig.traverse(o=>{if(o.isSkinnedMesh)o.skeleton.dispose()});
   }
   async function equip(agent, gun, skin, stamp, skill) {
-    const ticket=++generation;
+    const ticket=++generation, requestedAt=clock;
     if(state){state.rig.removeFromParent();rack.set(state.stamp,state);}
     state=rack.get(stamp);
     ready=!!state;
@@ -410,6 +482,7 @@ export function firstPerson() {
     }
     const socket = rig.getObjectByName(spec.fp?.Bone ?? 'R_WeaponMaster');
     if (!socket) {disposeSkin?.();weapon.userData.release?.();return;}
+    sleeveEdges(rig);
     socket.add(weapon);
     const rot = spec.fp?.Rotation ?? { X: 0, Y: 90, Z: 0 };
     weapon.rotation.set(...[rot.X, rot.Y, rot.Z].map(T.MathUtils.degToRad));
@@ -455,7 +528,8 @@ export function firstPerson() {
     state = { stamp, rig, weapon, eye, muzzle, spark, knives, disposeSkin, armMixer, gunMixer, poses,
       bow:usesBow(skill)?bowPresentation(rig,weapon,skill,eye):null,
       articulation:skill ? null : skinArticulation(rig,weapon,gun,skin,actions,fallback),
-      fingers: bindFingers(rig), equip: clock };
+      framing:frameGun(rig,weapon,eye,!skill && !abilityWeapons[gun] && gun!=='melee' && (!library.skins[skin?.id] || skin?.banner==='rogue')),
+      fingers: bindFingers(rig), equip: requestedAt };
     ready = true;
   }
   function pose(tag, ratio) {
@@ -492,11 +566,12 @@ export function firstPerson() {
         idle = Math.max(0.1, state.poses.idle.duration),
         equipSeconds = Math.max(
           0.1,
-          (skill ? timing[skill]?.['equip time'] : null) ?? state.poses.equip?.duration ?? 0.65,
+          (skill ? timing[skill]?.['equip time'] : p.drawDuration || WEAPONS[gun]?.equip) ?? state.poses.equip?.duration ?? 0.65,
         ),
         fireSeconds = Math.max(0.06, state.poses.fire?.duration ?? 0.26);
       const strike = p.strike,
         bladeAttack = !skill && ['melee', 'blades'].includes(gun) && strike?.weapon === gun;
+      const attackSeconds=gun==='melee' ? (strike?.alt ? 1 : .5) : .3;
       const attackName = strike?.alt ? 'alt attack' : 'attack ' + (strike?.combo ?? 1),
         attackPose = state.poses[attackName] ? attackName : state.poses['attack 1'] ? 'attack 1' : 'fire';
       let tag = 'idle',
@@ -520,9 +595,9 @@ export function firstPerson() {
       } else if (p.inspectUntil > now) {
         tag = 'inspect';
         ratio = 1 - (p.inspectUntil - now) / inspection;
-      } else if (bladeAttack && age >= 0 && age < (state.poses[attackPose]?.duration ?? 0.6)) {
+      } else if (bladeAttack && age >= 0 && age < attackSeconds) {
         tag = attackPose;
-        ratio = age / (state.poses[attackPose]?.duration ?? 0.6);
+        ratio = age / attackSeconds;
       } else if (!['blades', 'melee'].includes(gun) && age >= 0 && age < fireSeconds) {
         tag = 'fire';
         ratio = age / fireSeconds;
@@ -531,12 +606,16 @@ export function firstPerson() {
         ratio = (now - state.equip) / equipSeconds;
       }
       state.fingers.restore();
+      state.framing?.restore();
       state.articulation?.restore();
       pose(tag, T.MathUtils.clamp(ratio, 0, 1));
-      state.articulation?.update(tag,ratio,age);
-      if (!skill && skin?.motionOn && (motionAction(skin,tag) || recordedAction(skin,tag)))
+      state.articulation?.update(bladeAttack && tag===attackPose ? attackName : tag,ratio,age);
+      state.framing?.update(tag,ratio);
+      if (!skill && skin && (tag==='inspect' || tag==='reload' || tag==='equip'))
         state.fingers.apply(skin, tag, ratio);
       state.weapon.userData.animate?.(now,tag,ratio);
+      state.weapon.userData.drawGlow?.(tag,ratio);
+      state.weapon.userData.foldBlade?.(tag,ratio);
       state.bow?.update(charge,tag,ratio);
       if(state.weapon.userData.spareMagazine)state.weapon.userData.spareMagazine.visible=tag==='reload' && ratio>.12 && ratio<.82;
       if (state.knives) {
@@ -551,7 +630,7 @@ export function firstPerson() {
       if(p.ads && !skill && state.muzzle && tag!=='reload' && tag!=='inspect'){
         state.muzzle.getWorldPosition(aimPoint);
         cam.position.z=aimPoint.z;
-        cam.position.y=aimPoint.y+.045;
+        cam.position.y=aimPoint.y+(gun==='headhunter'?.052:.083);
       }
       const sample = !skill && sampleMotion(motionAction(skin, tag), ratio);
       if (sample) {
@@ -561,7 +640,12 @@ export function firstPerson() {
         cam.translateY(sample[1] * 0.22);
         cam.rotateZ(sample[2] * 0.55);
       }
-      cam.fov = p.ads ? 37 : 48;
+      if(!p.ads && !skill){
+        const handling=tag==='reload'||tag==='inspect'?Math.sin(Math.PI*ratio):0;
+        cam.position.x-=.075+.055*handling;
+        cam.position.y+=.012;
+      }
+      cam.fov = p.ads ? 43 : skill ? 55 : 64;
       state.spark.visible = !skill && !['melee', 'blades'].includes(gun) && age >= 0 && age < 0.072;
       if (!skill && skin?.performance && state.spark.material.map)
         state.spark.material.map.offset.x = Math.min(2, Math.floor(age / 0.024)) / 3;

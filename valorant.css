@@ -676,3 +676,14 @@ input:not([type='range']):not([type='checkbox']) {
 #killmark{position:absolute;bottom:14%;left:50%;transform:translateX(-50%);height:clamp(62px,13vh,126px);width:auto;pointer-events:none}
 .field-alert {display:table;margin:0 auto .45rem;padding:.35rem 1.05rem;background:#142632df;color:#b5fff1;letter-spacing:.12em;border-top:2px solid #85e9db}
 .field-alert.scanned {background:#421d28e8;color:#ffdbd0;border-color:#ff8073}
+/* Optics sit behind the scoreboard, radar and health readouts. */
+#scope {position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:-1}
+#hud {isolation:isolate}
+canvas#crosshair {width:160px;height:160px;translate:-50% -50%;pointer-events:none}
+.reticle-preview {display:flex;align-items:center;gap:14px}
+.reticle-preview canvas {width:78px;height:78px;background:#2b3940;border:1px solid #607078}
+#crosshair-code {width:100%;padding:.55rem;background:#17262c;color:white;border:1px solid #708486}
+#weapon-turntable {height:clamp(160px,26vh,320px);width:100%;background:radial-gradient(ellipse at 50% 60%,#31444f,#15212b 70%);cursor:grab}
+#weapon-turntable canvas {width:100%;height:100%;touch-action:none;display:block}
+#weapon-turntable:active {cursor:grabbing}
+.skin-reference {margin-left:1em;color:#a5e9df}

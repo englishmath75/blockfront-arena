@@ -26,6 +26,8 @@ for (const [key, base, name, size, damage] of [
   };
 }
 WEAPONS.melee.auto = true;
+Object.assign(WEAPONS.headhunter,{equip:.3,ads:{zoomMultiplier:1.5,firstBulletAccuracy:0,fireRate:1/WEAPONS.headhunter.interval,runSpeedMultiplier:.75}});
+Object.assign(WEAPONS.tour,{spread:WEAPONS.operator.spread});
 Object.assign(WEAPONS.blades, { auto: true, interval: 1 / 6, equip: 0.5, recoil: 0, ads: null, move: 1 });
 export const AGENTS = catalog.agents;
 export const SLOTS = ['C', 'Q', 'E', 'X'];
@@ -42,8 +44,13 @@ export function velocityStep(vx, vz, dx, dz, speed, dt) {
   const fraction = difference ? Math.min(1, change / difference) : 0;
   return [vx + (tx - vx) * fraction, vz + (tz - vz) * fraction];
 }
+const sniperNames=new Set([WEAPONS.operator.name,WEAPONS.outlaw.name,WEAPONS.marshal.name,WEAPONS.tour.name]);
 export function spreadFor(weapon, speed, airborne, crouched, bloom) {
   const motion = clamp((speed - STOP_THRESHOLD) / (RUN_SPEED - STOP_THRESHOLD), 0, 1);
+  if(weapon.ads && sniperNames.has(weapon.name)){
+    const movement=clamp(speed/(RUN_SPEED*.8),0,1);
+    return weapon.spread*(crouched?.9:1)+Math.PI/180*(airborne?20:15*movement)+bloom;
+  }
   return weapon.spread * (crouched ? 0.85 : 1) + motion * 0.085 + (airborne ? 0.11 : 0) + bloom;
 }
 export function audibleStep(mode, speed, grounded) {

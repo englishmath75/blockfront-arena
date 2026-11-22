@@ -1,3 +1,4 @@
+import { crossesWire } from './trapwire.js';
 import timing from './ability-times.json' with { type: 'json' };
 
 // Width and reach are in map metres. Windup and effect durations use the
@@ -79,7 +80,7 @@ export function castField(name, p, ground, params, ctx) {
   if (helper) {
     const [kind, hp, lifetime, speed, color] = helper;
     const deploy = stat['deploy time'] ?? stat['deployment duration'] ?? 0.15;
-    const at = speed ? p : ground;
+    const at = kind==='trapwire' ? params.wire && {x:params.wire.start[0],y:params.wire.start[1],z:params.wire.start[2]} : speed ? p : ground;
     if (!Number.isFinite(at?.y)) return false;
     let objective;
     if (kind === 'wingman' && params.alt) {
@@ -121,6 +122,7 @@ export function castField(name, p, ground, params, ctx) {
         objective,
         airborne,
         originY: d.y,
+        ...(kind==='trapwire'?{wireEnd:params.wire.end}:{}),
       });
     }
     return true;
@@ -227,6 +229,22 @@ export function tickField(d, owner, dt, ctx) {
   }
   if (time < d.start || (owner.down && d.kind === 'turret')) return true;
   const close = players.filter((o) => !o.down && hostile(owner, o)).sort((a, b) => dist(a, d) - dist(b, d));
+  if(d.kind==='trapwire' && d.wireEnd){
+    if(d.triggerAt && time>=d.triggerAt){
+      const victim=close.find(o=>o.id===d.caught);
+      if(victim && victim.tether?.source===d.id){hurt(victim,stat.damage,owner);victim.tag=time+stat['triggered slow duration'];delete victim.tether}
+      delete d.triggerAt;delete d.caught;d.start=time+stat['re-arm time'];return true;
+    }
+    if(!d.triggerAt){
+      const victim=close.find(o=>crossesWire(d,o));
+      if(victim){
+        d.triggerAt=time+stat['windup time'];d.cueAt=time;d.caught=victim.id;
+        victim.tether={x:victim.x,z:victim.z,until:d.triggerAt,source:d.id,radius:stat['distance required to move away when affected']};
+        victim.slowUntil=time+stat['triggered slow duration'];victim.revealTeam=owner.team;victim.revealEnd=d.triggerAt;
+      }
+    }
+    return true;
+  }
   const target =
     close.find((o) => o.id === d.targetId) ??
     close.find((o) => {
@@ -289,7 +307,9 @@ export function tickField(d, owner, dt, ctx) {
   ) {
     if (d.kind === 'alarmbot' && dist(d, owner) > 40) return true;
     if (target) {
-      d.angle = Math.atan2(d.x - target.x, d.z - target.z);
+      const bearing=Math.atan2(d.x-target.x,d.z-target.z);
+      d.angle=d.kind==='wingman'?d.angle+Math.atan2(Math.sin(bearing-d.angle),Math.cos(bearing-d.angle))*Math.min(1,dt*13):bearing;
+      if(d.kind==='wingman')d.chasing=true;
       if (d.kind === 'alarmbot') d.speed = stat['movement speed'];
       if (d.kind === 'prowler') d.speed = stat['travel speeds'];
     } else if (d.kind === 'prowler' && owner.guiding) d.angle = owner.yaw;
@@ -351,7 +371,13 @@ export function tickField(d, owner, dt, ctx) {
   if (d.speed) {
     const dx = -Math.sin(d.angle) * dt * d.speed,
       dz = -Math.cos(d.angle) * dt * d.speed;
-    if (!ctx.travel(d, dx, dz) && !target) d.angle += Math.PI * 0.6;
+    if(!ctx.travel(d,dx,dz)){
+      if(d.kind==='wingman'){
+        const turn=d.turnSide??1;
+        if(ctx.travel(d,-dz*turn,dx*turn))d.angle-=Math.PI*.5*turn;
+        else{d.turnSide=-turn;d.angle+=Math.PI*.64*turn}
+      }else if(!target)d.angle+=Math.PI*.6;
+    }
   }
   return true;
 }

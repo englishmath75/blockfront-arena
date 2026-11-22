@@ -134,7 +134,24 @@ export async function warmFieldMaterials(world) {
   // The registry keeps one instance of each program alive for this map.
   // Releasing the final material would force the next cast to compile it again.
   world.fieldMaterials.push(...staging.children.map(m=>m.material));
-  await world.renderer.compileAsync(staging,world.camera,world.scene);
+  const renderer=world.renderer, camera=new T.PerspectiveCamera(64,1,.05,20);
+  camera.position.z=3;
+  staging.background=new T.Color(0);
+  staging.fog=world.scene.fog;
+  for(const o of world.scene.children)if(o.isLight)staging.add(o.clone());
+  await renderer.compileAsync(staging,camera);
+  // Execute each program once while the loading screen is still visible.
+  const target=new T.WebGLRenderTarget(32,32), previous=renderer.getRenderTarget();
+  try{renderer.setRenderTarget(target);renderer.render(staging,camera)}
+  finally{renderer.setRenderTarget(previous);target.dispose()}
+  const gl=renderer.getContext(),fence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);
+  if(fence){
+    gl.flush();
+    const until=performance.now()+2000;
+    try{while(performance.now()<until && gl.clientWaitSync(fence,0,0)===gl.TIMEOUT_EXPIRED)
+      await new Promise(resolve=>requestAnimationFrame(resolve))}
+    finally{gl.deleteSync(fence)}
+  }
 }
 export function lanePaths(world, p, devices) {
   const paths = [];

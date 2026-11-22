@@ -63,6 +63,18 @@ export function createWorld(canvas, data) {
   const software=softwareGraphics(canvas);
   const maxRatio=software ? .65 : Math.min(window.devicePixelRatio || 1,1.6);
   const fieldMaterials=[];
+  const gl=renderer.getContext();
+  let frameFence=null;
+  function gpuReady(){
+    if(!frameFence)return true;
+    if(gl.clientWaitSync(frameFence,0,0)===gl.TIMEOUT_EXPIRED)return false;
+    gl.deleteSync(frameFence);frameFence=null;return true;
+  }
+  function submitted(){
+    if(!software)return;
+    if(frameFence)gl.deleteSync(frameFence);
+    frameFence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);gl.flush();
+  }
   renderer.setPixelRatio(maxRatio);
   let windowStart=0,frameCount=0,fastWindows=0;
   function frameBudget(stamp,elapsed) {
@@ -234,7 +246,7 @@ export function createWorld(canvas, data) {
     scene.add(group);
   }
   const updateTerrainFeedback = terrainFeedback(scene);
-  const cachedView=software && scenery ? staticView(renderer,scene,camera,scenery,sky) : null;
+  const cachedView=software && scenery ? staticView(renderer,scene,camera,scenery,sky,updateTerrainFeedback.uniforms) : null;
   const dark = material('#263432');
   const strap = material('#344c3d');
   const trim = material('#99b78a');
@@ -423,6 +435,7 @@ export function createWorld(canvas, data) {
     return ray.ray;
   }
   function dispose() {
+    if(frameFence)gl.deleteSync(frameFence);
     cachedView?.dispose();
     for(const material of fieldMaterials)material.dispose();
     first.dispose();
@@ -448,15 +461,33 @@ export function createWorld(canvas, data) {
     structure,
     mechanisms,
     updateMechanisms,
-    frameBudget,
+    frameBudget,gpuReady,submitted,
+    async warmSpawn(player,isCurrent){
+      if(!cachedView)return;
+      const cam=camera.clone(),target=new T.WebGLRenderTarget(48,32);
+      cam.position.set(player.x,player.y+player.height,player.z);cam.fov=80;cam.updateProjectionMatrix();
+      try{
+        for(const [yaw,pitch] of [[0,0],[Math.PI/2,0],[Math.PI,0],[-Math.PI/2,0],[0,-1.2]]){
+          if(!isCurrent())break;
+          cam.rotation.set(pitch,player.yaw+yaw,0,'YXZ');
+          const previous=renderer.getRenderTarget();
+          try{renderer.setRenderTarget(target);renderer.render(scene,cam)}
+          finally{renderer.setRenderTarget(previous)}
+          submitted();
+          const until=performance.now()+1500;
+          while(isCurrent() && !gpuReady() && performance.now()<until)
+            await new Promise(resolve=>requestAnimationFrame(resolve));
+        }
+      }finally{target.dispose()}
+    },
     fieldMaterials,
     first,
     dispose,
     scene,
     camera,
     renderer,
-    renderWorld(animatedSurface){
-      if(cachedView)cachedView.draw(animatedSurface);
+    renderWorld(){
+      if(cachedView)cachedView.draw();
       else renderer.render(scene,camera);
     },
     tool,

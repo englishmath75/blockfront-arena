@@ -1,5 +1,6 @@
 import * as T from 'three';
 import mirrored from './mirrored-chromas.json' with { type: 'json' };
+import { butterflyHinge } from './folding-knife.js';
 import { buildVandalTrim } from './skin-trim.js';
 
 export function muzzleAtMinX(root) {
@@ -197,6 +198,8 @@ export async function fitSkinOutline(root, url, skin) {
   const material = new T.MeshStandardMaterial({ map, roughness: 0.48, metalness: 0.17, side: T.DoubleSide });
   const invisible = new T.MeshBasicMaterial({ visible: false }),
     meshes = [];
+  const hinge=butterflyHinge(skin,art,worldX,worldY,center);
+  if(hinge)root.userData.foldBlade=hinge.pose;
   const loadedMag=root.getObjectByName('Magazine_Main')??root.getObjectByName('Magazine');
   const reserveSocket=root.getObjectByName('Magazine_Extra');
   const spare=new T.Group();
@@ -208,7 +211,9 @@ export async function fitSkinOutline(root, url, skin) {
     geo.setAttribute('uv', new T.Float32BufferAttribute(g.uv, 2));
     geo.setIndex(g.index);
     geo.computeVertexNormals();
+    hinge?.shape(geo,g.transform);
     const mesh = new T.Mesh(geo, material);
+    hinge?.attach(mesh);
     mesh.userData.plate = g.section;
     if (g.section) {
       const toLocal = new T.Matrix3().setFromMatrix4(g.transform);
@@ -232,6 +237,7 @@ export async function fitSkinOutline(root, url, skin) {
     skin &&
     buildVandalTrim(root, mount, skin, bounds, forward, (art.bottom - art.top) / (art.right - art.left));
   return () => {
+    delete root.userData.foldBlade;
     spare.removeFromParent();
     releaseTrim?.();
     for (const mesh of meshes) {

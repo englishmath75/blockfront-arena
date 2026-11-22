@@ -208,6 +208,7 @@ export function armory(p, id, free) {
     '</div>'
   );
 }
+import skinSources from './skin-sources.json' with {type:'json'};
 export function collection(gun, equipped, options = {}) {
   const selected = equipped[gun],
     items = skins[gun] ?? [];
@@ -227,7 +228,8 @@ export function collection(gun, equipped, options = {}) {
           '</option>',
       )
       .join('') +
-    '</select></label>' +
+    '</select></label><div id="weapon-turntable" aria-label="3D 무기 미리보기"></div><small>드래그해서 회전</small>' +
+    (skinSources[selected]?'<a class="skin-reference" target="_blank" rel="noopener noreferrer" href="https://www.youtube.com/watch?v='+skinSources[selected]+'">스킨 시연 영상</a>':'')+
     skinPreviews(
       skinProfile(
         items.find((s) => s.id === selected),
@@ -274,7 +276,8 @@ export function settingsForm(s) {
     '"></label>' +
     '<label>이동·사격 오차 표시 <input id="s-dynamic" type="checkbox" ' +
     (s.dynamic ? 'checked' : '') +
-    '></label></div>' +
+    '></label><label for="crosshair-code">발로란트 조준점 코드</label><a class="skin-reference" target="_blank" rel="noopener noreferrer" href="https://www.vcrdb.net/">조준점 코드 찾기 ↗</a><input id="crosshair-code" maxlength="700" spellcheck="false" placeholder="0;P;…" value="'+escape(s.crosshairCode??'')+'">' +
+    '<div class="reticle-preview"><canvas id="reticle-preview" width="160" height="160"></canvas><div>'+btn('import-reticle','코드 적용')+btn('reset-reticle','기본값')+'</div></div><output id="reticle-result" role="status"></output></div>' +
     btn('settings-back', '돌아가기')
   );
 }

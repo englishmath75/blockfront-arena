@@ -19,8 +19,45 @@ import joints from './finger-motion.json' with { type: 'json' };
 import { castField, tickField } from './agent-fields.js';
 import { createZone, tickZone, shieldHit } from './ability-zones.js';
 import { Ray, Vector3 } from 'three';
+import { parseCrosshair } from './crosshair.js';
+import { scopeLevels,zoomFov } from './optics.js';
+import { anchorPair,crossesWire } from './trapwire.js';
+import { meleeTracks } from './melee-motion.js';
+import { WEAPONS as armory,spreadFor as accuracy } from './rules.js';
 import { PlayerRoom } from './room-client.js';
 
+test('crosshair codes retain independently configured primary, ADS and sniper sections',()=>{
+  const c=parseCrosshair('0;a;1;P;c;8;u;37FFACFF;0l;6;0g;1;0v;3;A;d;1;S;c;5');
+  assert.equal(c.global.a,1);assert.equal(c.P.u,'#37FFACFF');assert.equal(c.P['0v'],3);
+  assert.equal(c.A.d,1);assert.equal(c.S.c,5);
+  assert.equal(parseCrosshair('0;P;0l;garbage'),null);
+});
+test('sniper magnification and movement accuracy match the equipped weapon',()=>{
+  for(const [gun,levels] of Object.entries(scopeLevels)){
+    const stats=armory[gun],aimed={...stats,spread:stats.ads.firstBulletAccuracy*Math.PI/180};
+    assert(stats.spread>aimed.spread);assert(accuracy(aimed,4,false,false,0)>accuracy(aimed,0,false,false,0));
+    const fov=zoomFov(72,levels[0]);
+    assert(Math.abs(Math.tan(Math.PI*36/180)/Math.tan(Math.PI*fov/360)-levels[0])<1e-9);
+  }
+  assert.equal(armory.headhunter.ads.zoomMultiplier,1.5);
+});
+test('tripwire requires a second surface, hits at body height, and rearms after a capture',()=>{
+  const ray=new Ray(new Vector3(0,1,2),new Vector3(0,0,-1));
+  const surface={surfaceDistance:2,normal:[0,0,1]};
+  assert.equal(anchorPair({mapHit:()=>10},ray,2,surface,[]),undefined);
+  const anchors=anchorPair({mapHit:(_ray,_len,_dev,_v,hit)=>{Object.assign(hit,{surfaceDistance:4,normal:[0,0,-1]});return 4}},ray,2,surface,[]);
+  const owner={id:1,team:1},p={id:2,x:0,y:0,z:2,team:2,height:1.6};
+  const d={id:8,type:'companion',kind:'trapwire',name:'함정',x:0,y:1,z:anchors.start[2],wireEnd:anchors.end,start:0,end:30};
+  assert(crossesWire(d,p));assert(!crossesWire(d,{...p,y:2}));assert(!crossesWire(d,{...p,x:.9}));
+  let damage=0;const ctx={time:1,players:[p],hostile:(a,b)=>a.team!==b.team,hurt:(_,amount)=>damage+=amount};
+  tickField(d,owner,.1,ctx);assert.equal(p.tether.source,8);
+  ctx.time=1.71;tickField(d,owner,.1,ctx);assert.equal(damage,5);assert.equal(d.start,3.71);assert.equal(p.tether,undefined);
+});
+test('knife families provide distinct equip, combo and heavy strokes',()=>{
+  const values=skins.melee.map(s=>meleeTracks(s,.33,.44));
+  assert.equal(values.length,177);assert(new Set(values.map(v=>JSON.stringify(v.equip))).size>=9);
+  for(const v of values)assert.notDeepEqual(v['attack 1'],v['alt attack']);
+});
 test('a client becomes host only after the join response identifies its player', () => {
   const client = new PlayerRoom(() => {});
   assert.equal(client.host, false);

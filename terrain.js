@@ -11,9 +11,10 @@ export async function loadTerrain(name, compact=false) {
   async function read(ext) {
     const response = await fetch('/terrain/' + map.slug + ext + (ext === '.compact.gz' ? '?v=2' : ''));
     if (!response.ok) throw Error(name + ' 전장 파일을 열 수 없습니다.');
-    return ['.scene.gz','.compact.gz'].includes(ext)?readScene(response):ext==='.tri.gz'?unpack(response):response.arrayBuffer();
+    return ['.scene.gz','.compact.gz'].includes(ext)?readScene(response):(ext==='.tri.gz'||ext==='.detail.gz')?unpack(response):response.arrayBuffer();
   }
-  const [collision, visual,texture,triangles] = await Promise.all([read('.vxb'), read(compact?'.compact.gz':'.scene.gz'),new TextureLoader().loadAsync('/terrain/'+map.slug+'.webp'),read('.tri.gz')]);
+  const [collision, visual,texture,triangles,detail] = await Promise.all([read('.vxb'), read(compact?'.compact.gz':'.scene.gz'),new TextureLoader().loadAsync('/terrain/'+map.slug+'.webp'),read('.tri.gz'),compact?read('.detail.gz').catch(()=>null):null]);
+  if(detail)visual.detail=new Uint32Array(detail);
   const data = { collision, visual,texture,triangles };
   loaded = { name, compact, data };
   return data;

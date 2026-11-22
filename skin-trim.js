@@ -314,7 +314,14 @@ export function buildVandalTrim(root, bone, skin, box, forward, aspect) {
     pivot.add(mesh);
     meshes.push(mesh);
   });
+  if(family==='rogue' && skin.visualOn){
+    root.userData.drawGlow=(tag,t)=>{
+      const pulse=tag==='equip'?.62*Math.exp(-Math.pow((t-.52)/.12,2))+Math.exp(-Math.pow((t-.76)/.09,2)):0;
+      materials[2].emissiveIntensity=.95+2.8*pulse;
+    };
+  }
   return () => {
+    delete root.userData.drawGlow;
     pivot.removeFromParent();
     meshes.forEach((m) => m.geometry.dispose());
     materials.forEach((m) => m.dispose());

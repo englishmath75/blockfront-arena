@@ -68,7 +68,7 @@ function staticSectors(instances,pieces,material) {
     const mesh=new T.Mesh(g,material);
     if(levels>1)mesh.onBeforeRender=(renderer,scene,camera)=>{
       const distance=g.boundingBox.distanceToPoint(camera.position);
-      const level=distance<12?0:distance<27?1:2;
+      const level=distance<8?0:distance<21?1:2;
       g.setDrawRange(offsets[level],counts[level]);
     };
     root.add(mesh);
@@ -101,6 +101,14 @@ export function drawScenery(scene, source, texture, bakeStatic=false) {
   let vertices = 0,
     indices = 0,
     instances = 0;
+  let detailOffset=0;
+  function distanceIndices(original){
+    if(!source.detail)return attr(original);
+    const count=source.detail[detailOffset++],start=detailOffset;
+    if(!count || count%3 || count>source.detail.length-start){source.detail=null;return attr(original)}
+    detailOffset+=count;
+    return new T.BufferAttribute(source.detail.subarray(start,detailOffset),1);
+  }
   const pieces = meta.meshes.map((parts) =>
     parts.map(([p, n, u, i, t,medium,far]) => {
       const g = new T.BufferGeometry(),
@@ -109,7 +117,7 @@ export function drawScenery(scene, source, texture, bakeStatic=false) {
       g.setAttribute('uv', u === null ? new T.BufferAttribute(new Float32Array(pos.count * 2), 2) : attr(u));
       if (i !== null) g.setIndex(attr(i));
       else g.setIndex(Array.from({ length: pos.count }, (_, a) => a));
-      if(medium!=null && far!=null)g.userData.lods=[g.index,attr(medium),attr(far)];
+      if(medium!=null && far!=null)g.userData.lods=[g.index,distanceIndices(medium),distanceIndices(far)];
       if (n !== null) g.setAttribute('normal', attr(n));
       else g.computeVertexNormals();
       g.setAttribute('tileIndex', new T.BufferAttribute(new Float32Array(pos.count).fill(t), 1));

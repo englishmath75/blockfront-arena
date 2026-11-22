@@ -48,10 +48,12 @@ export function skinArticulation(rig, weapon, gun, skin, actions, baseline) {
     update(tag,t,age) {
       const keys=tracks[tag];
       let spread=0;
-      if(Array.isArray(keys) && t>0 && t<1){
+      const moving=Array.isArray(keys) && t>0 && t<1;
+      if(moving || tracks.guard){
         for(const j of all){j.rest.copy(j.bone.quaternion);j.position.copy(j.bone.position)}
         modified=true;
-        sampleHandling(keys,t,sample);
+        if(moving)sampleHandling(keys,t,sample);else sample.fill(0);
+        sample[0]+=tracks.guard??0;
         const [roll,lift,wrist,grip]=sample;
         const inspecting=tag==='inspect';
         hand.getWorldPosition(pivot);
@@ -83,10 +85,14 @@ export function skinArticulation(rig, weapon, gun, skin, actions, baseline) {
           const trace=left && digit===1 && tracks.point && inspecting;
           const bend=trace ? -Math.abs(wrist)*.82 : pressure*(digit===0?.38:.53+digit*.10);
           bone.rotateX(bend*(segment===2?.76:.94));
+          if(left && gun==='vandal' && skin.banner==='rogue' && tag==='equip'){
+            const release=Math.exp(-Math.pow((t-.42)/.13,2)),pinch=Math.exp(-Math.pow((t-.66)/.15,2));
+            bone.rotateX(release*[-.15,-.44,-.49,-.46,-.39][digit]+pinch*[.26,-.49,.23,.38,.45][digit]);
+          }
           if(segment===1)bone.rotateZ(digit===0?-pressure*.34:(digit-2.1)*.145*(wrist-pressure));
         }
         const frames=wristFrames?.[tag];
-        if(frames && eye && support && (motionAction(skin,tag) || recordedAction(skin,tag))){
+        if(frames && eye && support && (motionAction(skin,tag) || recordedAction(skin,tag) || (skin.banner==='rogue' && tag==='equip'))){
           const time=t*(frames.length-1),i=Math.floor(time),a=frames[i],b=frames[Math.min(i+1,frames.length-1)];
           if(a || b){
             const l=a??b,r=b??a,mix=time-i;

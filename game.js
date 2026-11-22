@@ -2,6 +2,9 @@ import { killBanner } from './kill-banner.js';
 import { onIce } from './terrain-feedback.js';
 import { fieldAudio, prepareFieldAudio } from './field-audio.js';
 import { tickGroundField } from './ground-fields.js';
+import { parseCrosshair,reticle } from './crosshair.js';
+import { scopeLevels,zoomFov,drawScope } from './optics.js';
+import { anchorPair, wireVisual } from './trapwire.js';
 import { castField, tickField, fieldProp } from './agent-fields.js';
 import { createZone, tickZone } from './ability-zones.js';
 import voices from './ability-voice.json' with { type: 'json' };
@@ -11,7 +14,7 @@ import { alternateAttack, shotPattern, meleeDamage } from './attacks.js';
 import { recordedEffect, playHandling } from './skin-performance.js';
 import timing from './ability-times.json' with { type: 'json' };
 import { deviceMesh, drawDevice, lanePaths, warmFieldMaterials } from './field-effects.js';
-import { modelKey, inspectLength, attachProp } from './actor-models.js';
+import { modelKey, inspectLength, attachProp, previewWeapon, warmLoadout } from './actor-models.js';
 import { heldSkill } from './held-skill.js';
 import {
   deviceKind,
@@ -119,6 +122,15 @@ function save(key, value) {
   } catch {}
 }
 let settings = { sens: 1, volume: 0.7, color: '#80ffcf', dynamic: true, ...stored('settings', {}) };
+let reticleProfile=parseCrosshair(settings.crosshairCode), zoomStep=0;
+function toggleZoom(){
+  const id=heldWeapon(match.player).id;
+  if(!weaponFor(match.player).ads || match.player.reloading)return;
+  zoomStep=ads?zoomStep+1:1;
+  if(zoomStep>(scopeLevels[id]?.length??1))zoomStep=0;
+  ads=zoomStep!==0;
+  match.player.ads=ads;match.player.zoomStep=zoomStep;
+}
 let equipped = stored('skins', {}),
   skinOptions = stored('skin-options', {}),
   collectionGun = 'vandal',
@@ -1259,13 +1271,15 @@ function shoot(p, alt = false, follow = false) {
     }
   }
   presentStrike(p);
-  if (!blade) p.bloom = Math.min(0.08, p.bloom + stats.recoil);
+  if(item.id==='outlaw'){p.bloom=2.25*pi/180;p.spreadRecovery=now+.15}
+  else if (!blade) p.bloom = Math.min(0.08, p.bloom + stats.recoil);
   else if (!item.mag) p.bladeRetireAt = p.nextShot;
 }
 function reload(p) {
   const weapon = heldWeapon(p);
   const stats = weaponFor(p);
   if (!weapon || p.reloading || weapon.mag === stats.size || !weapon.reserve) return;
+  if(p.local){ads=false;zoomStep=0}p.ads=false;p.zoomStep=0;
   p.burstRemaining = 0;
   p.inspectUntil = 0;
   if (p.local) stopAnimationAudio();
@@ -1274,7 +1288,8 @@ function reload(p) {
   sound('reload', p.local ? undefined : p);
 }
 function updateWeapon(p, dt) {
-  p.bloom = Math.max(0, p.bloom - dt * (p.hinderedUntil>now?.016:.032));
+  if(p.spreadRecovery && now>=p.spreadRecovery){p.bloom=0;p.spreadRecovery=0}
+  else if(!p.spreadRecovery)p.bloom = Math.max(0, p.bloom - dt * (p.hinderedUntil>now?.016:.032));
   if (!p.reloading || now < p.reloading) return;
   const weapon = heldWeapon(p);
   const need = Math.min(weapon.reserve, weaponFor(p).size - weapon.mag);
@@ -1295,6 +1310,7 @@ function equip(slot, p = match.player) {
   p.shot = -10;
   p.strike = null;
   p.selected = slot;
+  if(p.local){ads=false;zoomStep=0}p.ads=false;p.zoomStep=0;
   p.inspectUntil = 0;
   if (p.local) {
     stopAnimationAudio();
@@ -1302,7 +1318,8 @@ function equip(slot, p = match.player) {
   }
   p.burstRemaining = 0;
   p.reloading = 0;
-  p.nextShot = now + weaponFor(p).equip*(p.hinderedUntil>now?2:1);
+  p.drawDuration=weaponFor(p).equip*(p.hinderedUntil>now?2:1);
+  p.nextShot = now + p.drawDuration;
   p.bloom = 0;
 }
 
@@ -1315,6 +1332,7 @@ function visible(p, target) {
 }
 
 function disposeDevice(device) {
+  device.mesh.userData.disposeField?.();
   device.mesh.removeFromParent();
   device.mesh.material.dispose();
   if (device.mesh.userData.owned) device.mesh.geometry.dispose();
@@ -1760,7 +1778,8 @@ function ability(i, p = match.player, params = {}) {
   const dir = aim(p.yaw, p.pitch),
     line = new T.Ray(vec(p.x, p.y + p.height, p.z), dir);
   const castReach = stat['max deploy distance'] ?? 18;
-  const distance = world.mapHit(line, castReach, match.devices),
+  const mountInfo={};
+  const distance = world.mapHit(line, castReach, match.devices,false,mountInfo),
     point = line.at(Math.max(0.1, distance - 0.55), vec(0, 0, 0));
   const enemies = match.players.filter((o) => hostile(p, o) && !o.down);
   const friends = match.players.filter((o) => !hostile(p, o));
@@ -1768,6 +1787,7 @@ function ability(i, p = match.player, params = {}) {
     arr.sort((a, b) => range(a, { x: point.x, z: point.z }) - range(b, { x: point.x, z: point.z }))[0];
   let cost = 1;
   const ground = { x: point.x, y: floorAt(point.x, point.z, point.y + 1.5), z: point.z };
+  if(name==='함정')params={...params,wire:anchorPair(world,line,distance,mountInfo,match.devices)};
   const handled = castField(name, p, ground, params, fieldContext());
   if (handled === false) return;
   if (p.agent === '아스트라' && i < 3) {
@@ -2075,7 +2095,8 @@ function ability(i, p = match.player, params = {}) {
   } else if (deviceKind(name)) {
     const kind = deviceKind(name),
       self = kind === 'beacon',
-      pos = self ? p : point;
+      pos = self ? p : kind==='camera' ? line.at(Math.max(0,distance-.06),vec(0,0,0)) : point;
+    if(kind==='camera' && (!mountInfo.normal || distance>=castReach || Math.abs(mountInfo.surfaceDistance-distance)>.12))return;
     const y = kind === 'camera' || kind === 'rose' ? pos.y : floorAt(pos.x, pos.z, pos.y + 0.4);
     if (!Number.isFinite(y)) return;
     const d = addDevice(
@@ -2092,6 +2113,7 @@ function ability(i, p = match.player, params = {}) {
       y,
     );
     Object.assign(d, { kind, hp: 45, on: false, angle: p.yaw });
+    if(kind==='camera')d.normal=mountInfo.normal;
     if (kind === 'gatecrash' && !params.alt) d.travel = true;
     if (kind === 'rose' && params.alt && distance < 18) {
       const behind = line.at(distance + 0.6, vec(0, 0, 0));
@@ -2382,8 +2404,10 @@ function ability(i, p = match.player, params = {}) {
       case 'sniper': {
         const id = power === 'knives' ? 'blades' : power === 'sidearm' ? 'headhunter' : 'tour';
         p.kit.special = ammoFor(id);
+        p.drawDuration=id==='blades'?timing['칼날 폭풍']['initial windup time']:id==='tour'?timing['역작']['initial summon time']:WEAPONS[id].equip;
+        p.nextShot=now+p.drawDuration;p.zoomStep=0;p.ads=false;
+        if(p.local){ads=false;zoomStep=0}
         if (id === 'blades') {
-          p.nextShot = now + 1.02;
           p.bladeRetireAt = 0;
           p.strike = null;
         }
@@ -2651,7 +2675,7 @@ function drawProjectiles() {
     if (!a.stuck) m.lookAt(a.x + a.vx, a.y + a.vy, a.z + a.vz);
   }
   for (const p of match.players) {
-    if (!p.pilot || p.down) continue;
+    if (!p.pilot || p.down || p.pilot.kind==='스파이캠') continue;
     const id = 'pilot-' + p.id;
     ids.add(id);
     let m = visible.get(id);
@@ -2668,12 +2692,16 @@ function drawProjectiles() {
         const holder = new T.Group();
         m.add(holder);
         holder.scale.set(1 / m.scale.x, 1 / m.scale.y, 1 / m.scale.z);
-        attachProp(holder, slug, 0.6);
+        attachProp(holder,slug,slug==='stealth-drone'?.49:.6,true);
+        m.userData.mount=holder;
         m.material.visible = false;
       }
       visible.set(id, m);
     }
-    m.position.set(p.pilot.x, p.pilot.y, p.pilot.z);
+    const modelY=p.pilot.y-(p.pilot.kind==='잠입 드론'?.25:0);
+    const moved=(m.position.x-p.pilot.x)**2+(m.position.z-p.pilot.z)**2>.000001;
+    m.userData.mount?.userData.animateProp?.(moved?'_Run_N':'_Idle',now);
+    m.position.set(p.pilot.x, modelY, p.pilot.z);
     m.rotation.y = p.yaw;
     const enemy = hostile(match.player, p);
     m.visible =
@@ -3378,6 +3406,16 @@ function drawWorld(realTime) {
         d.mesh.userData.lastSound = cueAt;
         if (now - cueAt < 0.55) playSkillCue(d, d.name, 'impact');
       }
+      if(d.kind==='trapwire' && d.wireEnd){wireVisual(d,now,match.player);continue}
+      if(d.kind==='camera'){
+        const mesh=d.mesh;
+        if(!mesh.userData.requested){
+          mesh.userData.requested=true;mesh.scale.setScalar(1);
+          attachProp(mesh,'spycam',.31);
+          if(d.normal)mesh.quaternion.setFromUnitVectors(new T.Vector3(0,0,1),new T.Vector3().fromArray(d.normal).normalize());
+        }
+        mesh.position.set(d.x,d.y,d.z);
+      }
       if (['companion', 'agentPulse', 'groundWave', 'decoy', 'plane'].includes(d.type)) {
         const mesh = d.mesh;
         mesh.position.set(d.x, d.y + d.h / 2, d.z);
@@ -3397,7 +3435,15 @@ function drawWorld(realTime) {
         }
         if (fieldProp(d.kind) && !mesh.userData.requested) {
           mesh.userData.requested = true;
-          attachProp(mesh, fieldProp(d.kind), 1.5);
+          if(d.kind==='wingman'){
+            mesh.scale.setScalar(1);attachProp(mesh,'wingman',.78,true);
+          }else attachProp(mesh,fieldProp(d.kind),1.5);
+        }
+        if(d.kind==='wingman'){
+          mesh.position.y=d.y+.39;
+          const clip=d.channelEnd ? (d.objective?.operation==='defuse'?'Bomb_DeActivate_Loop':'Bomb_Activate') :
+            d.impactAt?'Attack_Aggro_Intro':now<d.start?'Intro':d.objective?'Run_Bomb':d.chasing?'Run_Aggro':'_Run';
+          mesh.userData.animateProp?.(clip,now-(d.impactAt?d.impactAt-.6:d.born));
         }
       }
     }
@@ -3520,8 +3566,13 @@ function drawWorld(realTime) {
         }
       }
     } else if (world.smokeMarker) world.smokeMarker.visible = false;
-    if (watch.ads && weaponFor(watch).ads) {
-      camera.fov = 72 / weaponFor(watch).ads.zoomMultiplier;
+    const optical=watch.ads && !watch.pilot && !liveSkill && !watch.down && !watch.reloading && weaponFor(watch).ads;
+    const scoped=optical && scopeLevels[gun];
+    if(scoped){world.first.visible=false;tool.visible=false;flash.visible=false}
+    drawScope(get('scope'),optical?gun:null,watch.zoomStep??1,
+      !reticleProfile && grounded(watch) && Math.hypot(watch.vx,watch.vz)<.45 && watch.bloom<.006,skin);
+    if (optical) {
+      camera.fov = zoomFov(72,scoped?.[Math.max(0,(watch.zoomStep||1)-1)]??optical.zoomMultiplier);
       tool.position.x = 0.08;
     }
     flash.visible =
@@ -3554,7 +3605,7 @@ function drawWorld(realTime) {
     core.rotation.y = now * 0.7;
   }
   camera.updateProjectionMatrix();
-  world.renderWorld(match?.devices.some(d=>d.type==='ice' || d.type==='reconWave')??false);
+  world.renderWorld();
   if (match) world.first.render(world.renderer, camera.aspect);
 }
 
@@ -3800,17 +3851,12 @@ function drawHud() {
     ).join(''),
   );
   const cross = get('crosshair');
-  cross.hidden = p.down || screen !== 'game';
-  cross.classList.toggle('hit', now < match.hit);
-  cross.style.setProperty(
-    '--gap',
-    Math.round(
-      3 +
-        Number(settings.dynamic) *
-          spreadFor(weaponFor(p), meter, !grounded(p), p.mode === 'crouch', p.bloom) *
-          212,
-    ) + 'px',
-  );
+  const scoped=watch.ads && scopeLevels[gun.id] && !watch.reloading;
+  const steady=grounded(watch) && Math.hypot(watch.vx,watch.vz)<.45 && watch.bloom<.006;
+  cross.hidden=p.down || screen!=='game' || (scoped && (!steady || !reticleProfile || gun.id==='tour'));
+  reticle(cross,reticleProfile,{color:settings.color,ads:watch.ads,sniper:!!scoped,
+    move:settings.dynamic?Math.max(0,spreadFor(weaponFor(p),meter,!grounded(p),false,0)-weaponFor(p).spread)*140:0,
+    fire:settings.dynamic?p.bloom*140:0});
   const core = match.core;
   const prompt = p.down
     ? '관전 · 좌클릭으로 전환'
@@ -3931,6 +3977,7 @@ const heading = (eyebrow, title) => '<span class="eyebrow">' + eyebrow + '</span
 let selectDestination = 'range',
   settingsReturn = 'home';
 function show(target) {
+  if(screen==='collection' && target!=='collection')previewWeapon(null);
   screen = target;
   hud.hidden = target !== 'game';
   menu.dataset.screen = target;
@@ -4047,6 +4094,11 @@ function show(target) {
     content +
     (notice ? '<p role="status">' + escape(notice) + '</p>' : '') +
     '</section>';
+  if(target==='collection'){
+    const id=equipped[collectionGun];
+    previewWeapon(get('weapon-turntable'),collectionGun,skinProfile(skinCatalog[collectionGun]?.find(v=>v.id===id),skinOptions[id]));
+  }
+  if(target==='settings')reticle(get('reticle-preview'),reticleProfile,{color:settings.color});
 }
 function purchase(p, id) {
   if (p.down || rush() || (!practice() && !dm() && match.phase !== 'buy')) return;
@@ -4165,6 +4217,8 @@ function roomEvent(type, data) {
       fire: !!i.fire,
     });
     if (i.sceneReady !== false) p.sceneReady = true;
+    p.ads=!!i.ads && !!weaponFor(p).ads && !p.reloading;
+    p.zoomStep=p.ads?Math.min(scopeLevels[heldWeapon(p).id]?.length??1,Math.max(1,Number(i.zoomStep)||1)):0;
     p.skinId = typeof i.skinId === 'string' && i.skinId.length === 36 ? i.skinId : null;
     p.skinLevel = Number.isInteger(i.skinLevel) ? i.skinLevel : undefined;
     p.skinVariant = typeof i.skinVariant === 'string' ? i.skinVariant : null;
@@ -4247,10 +4301,14 @@ async function load(roster) {
       if(token===transition)return loadedWorld.renderer.compileAsync(loadedWorld.scene,loadedWorld.camera);
     }),
     warmFieldMaterials(loadedWorld),
+    warmLoadout(Object.values(p.kit).filter(Boolean).map(({id})=>[
+      id,skinProfile(skinCatalog[id]?.find(s=>s.id===equipped[id]),skinOptions[equipped[id]])
+    ])),
     loadedWorld.first.loading.then(()=>{
       if(token===transition)return loadedWorld.renderer.compileAsync(loadedWorld.first.scene,loadedWorld.first.cam);
     })
   ]);
+  if(token===transition)await loadedWorld.warmSpawn(p,()=>token===transition);
   if(token===transition)drawWorld(performance.now());
   await nextFrame();
   if (token !== transition) return;
@@ -4264,7 +4322,7 @@ const stateKeys =
     ' ',
   );
 stateKeys.push(
-  'lastInputAction',
+  'lastInputAction','ads','zoomStep','drawDuration',
   'scannedUntil','iceUntil','stepSurface','tether','tag','hinderedUntil','slowUntil','hasteUntil','reloadDuration',
   'lastCast',
   'jammedUntil',
@@ -4468,6 +4526,7 @@ function networkFrame(time) {
     : {
         input: {
           sceneReady: match.player.sceneReady === true,
+          zoomStep,
           keys: [...keys],
           yaw: match.player.yaw,
           pitch: match.player.pitch,
@@ -4602,6 +4661,16 @@ menu.addEventListener('click', async (event) => {
     case 'settings-back':
       show(settingsReturn);
       break;
+    case 'import-reticle':
+    case 'reset-reticle': {
+      const code=d.action==='import-reticle'?get('crosshair-code').value.trim():'';
+      const parsed=parseCrosshair(code);
+      if(d.action==='import-reticle' && !parsed){get('reticle-result').textContent='코드 형식을 확인해 주세요.';break}
+      settings.crosshairCode=code;reticleProfile=parsed;save('settings',settings);
+      get('crosshair-code').value=code;reticle(get('reticle-preview'),parsed,{color:settings.color});
+      get('reticle-result').textContent=code?'조준점 코드를 적용했습니다.':'기본 조준점을 적용했습니다.';
+      break;
+    }
     case 'back-game':
       closeShop();
       break;
@@ -4901,7 +4970,7 @@ canvas.addEventListener('mousedown', (event) => {
       dragging = true;
       secondaryPress = { x: event.clientX, y: event.clientY, moved: false };
     } else if (alternateAttack(heldWeapon(match.player).id)) command('fire', true);
-    else if (weaponFor(match.player).ads) ads = !ads;
+    else toggleZoom();
   }
   if (event.button !== 0) return;
   if (match.player.down) {
@@ -4937,7 +5006,7 @@ window.addEventListener('mouseup', (event) => {
       event.target === canvas
     ) {
       if (alternateAttack(heldWeapon(match.player).id)) command('fire', true);
-      else if (weaponFor(match.player).ads) ads = !ads;
+      else toggleZoom();
     }
     secondaryPress = null;
     dragging = false;
@@ -5002,8 +5071,8 @@ try {
     const weapon = query.get('weapon');
     if (Object.hasOwn(skinCatalog, weapon) && Object.hasOwn(WEAPONS, weapon)) {
       const skin = skinCatalog[weapon].find((s) => s.id === query.get('skin'));
+      rangeWeapon=weapon;
       if (skin) {
-        rangeWeapon = weapon;
         rangeAppearance = skinProfile(skin, { variant: query.get('variant') });
       }
     }
@@ -5039,7 +5108,7 @@ try {
       networkFrame(time);
       if(match && screen!=='loading'){
         if(screen==='game')world.frameBudget(time,elapsed);
-        drawWorld(time);
+        if(world.gpuReady()){drawWorld(time);world.submitted()}
       }
       if (time - hudAt > 45 && screen === 'game') {
         hudAt = time;

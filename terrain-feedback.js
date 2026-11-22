@@ -1,36 +1,10 @@
 import { Vector4, TextureLoader, RepeatWrapping } from 'three';
 
-let facets;
-
-// Evaluate pulses on the actual rendered surfaces, including instanced doors and rafters.
-export function terrainFeedback(scene) {
-  const slots = () => ({ value: Array.from({length:32}, () => new Vector4()) });
-  const scans=slots(), ice=slots(), clock={value:0}, materials=new Set();
-  const scanCount={value:0}, iceCount={value:0};
-  if(!facets){
-    facets=new TextureLoader().load('/effects/ice-facets.png');
-    facets.wrapS=facets.wrapT=RepeatWrapping;
-  }
-  scene.traverse(o => { if(o.isMesh) for(const m of [o.material].flat()) if(m&&!m.isShaderMaterial) materials.add(m); });
-  for(const material of materials) {
-    const prior = material.onBeforeCompile.bind(material), key=material.customProgramCacheKey();
-    material.customProgramCacheKey=()=>key+'-terrain-feedback-v1';
-    material.onBeforeCompile=(shader,renderer)=>{
-      prior(shader,renderer);
-      Object.assign(shader.uniforms,{scanFields:scans,iceFields:ice,fieldClock:clock,scanCount,iceCount,iceFacet:{value:facets}});
-      shader.vertexShader='varying vec3 fieldWorld;\n'+shader.vertexShader.replace('#include <project_vertex>',`#include <project_vertex>
-        vec4 fieldPoint=vec4(transformed,1.);
-        #ifdef USE_BATCHING
-          fieldPoint=batchingMatrix*fieldPoint;
-        #endif
-        #ifdef USE_INSTANCING
-          fieldPoint=instanceMatrix*fieldPoint;
-        #endif
-        fieldWorld=(modelMatrix*fieldPoint).xyz;`);
-      shader.fragmentShader=`varying vec3 fieldWorld;
+export const fieldUniforms=`
         uniform vec4 scanFields[32],iceFields[32]; uniform int scanCount,iceCount;
         uniform float fieldClock; uniform sampler2D iceFacet;
-        \n`+shader.fragmentShader.replace('#include <opaque_fragment>',`
+`;
+export const fieldLighting=`
         for(int i=0;i<iceCount;i++){
           vec4 zone=iceFields[i]; vec2 local=fieldWorld.xz-zone.xz;
           if(zone.w>0. && abs(fieldWorld.y-zone.y)<.78 && length(local)<zone.w){
@@ -53,10 +27,39 @@ export function terrainFeedback(scene) {
             outgoingLight+=vec3(.05,.74,1.)*(1.9*line+trail*(.14+.6*grid));
           }
         }
-        #include <opaque_fragment>`);
+        `;
+let facets;
+
+// Evaluate pulses on the actual rendered surfaces, including instanced doors and rafters.
+export function terrainFeedback(scene) {
+  const slots = () => ({ value: Array.from({length:32}, () => new Vector4()) });
+  const scans=slots(), ice=slots(), clock={value:0}, materials=new Set();
+  const scanCount={value:0}, iceCount={value:0};
+  if(!facets){
+    facets=new TextureLoader().load('/effects/ice-facets.png');
+    facets.wrapS=facets.wrapT=RepeatWrapping;
+  }
+  const uniforms={scanFields:scans,iceFields:ice,fieldClock:clock,scanCount,iceCount,iceFacet:{value:facets}};
+  scene.traverse(o => { if(o.isMesh) for(const m of [o.material].flat()) if(m&&!m.isShaderMaterial) materials.add(m); });
+  for(const material of materials) {
+    const prior = material.onBeforeCompile.bind(material), key=material.customProgramCacheKey();
+    material.customProgramCacheKey=()=>key+'-terrain-feedback-v1';
+    material.onBeforeCompile=(shader,renderer)=>{
+      prior(shader,renderer);
+      Object.assign(shader.uniforms,uniforms);
+      shader.vertexShader='varying vec3 fieldWorld;\n'+shader.vertexShader.replace('#include <project_vertex>',`#include <project_vertex>
+        vec4 fieldPoint=vec4(transformed,1.);
+        #ifdef USE_BATCHING
+          fieldPoint=batchingMatrix*fieldPoint;
+        #endif
+        #ifdef USE_INSTANCING
+          fieldPoint=instanceMatrix*fieldPoint;
+        #endif
+        fieldWorld=(modelMatrix*fieldPoint).xyz;`);
+      shader.fragmentShader='varying vec3 fieldWorld;\n'+fieldUniforms+shader.fragmentShader.replace('#include <opaque_fragment>',fieldLighting+'\n#include <opaque_fragment>');
     };
   }
-  return (devices,now)=>{
+  const update=(devices,now)=>{
     clock.value=now;let a=0,b=0;
     for(const d of devices) {
       if(d.end<=now)continue;
@@ -66,6 +69,8 @@ export function terrainFeedback(scene) {
     scanCount.value=a;
     iceCount.value=b;
   };
+  update.uniforms=uniforms;
+  return update;
 }
 
 export function iceRadius(d,now) {

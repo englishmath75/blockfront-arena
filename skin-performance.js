@@ -47,6 +47,7 @@ export function prepareSkin(s,context) {
     if (filmed[s.family].audio !== false) prime('/effects/finish-'+s.family+'.ogg');
     if(!hasArenaFinisher(s.banner??s.family)) void finishImage(s.family).decode().catch(()=>{});
   }
+  if(s.banner==='rogue' && s.soundOn)prime(path+'rogue-draw.ogg');
   const reference=discharge(s);
   if(reference && context) void decodeCue(context,reference);
   loading ??= fetch('/weapon-audio/events.json?v=1.2')
@@ -124,9 +125,10 @@ export function playSkinEvent(s, action, duration, volume, context, gun, balance
   const sequence = recordings?.length
     ? [[0, recordings[Math.floor(Math.random() * recordings.length)]]]
     : (library?.bySkin[s.id]?.[action] ?? []);
-  if (!film && s.motionOn === false && ['inspect', 'equip', 'reload', 'light', 'heavy'].includes(action))
+  const rogueDraw=action==='equip' && s.banner==='rogue' && s.soundOn;
+  if (!film && !rogueDraw && s.motionOn === false && ['inspect', 'equip', 'reload', 'light', 'heavy'].includes(action))
     return false;
-  const events = film
+  const events = rogueDraw ? [[0,path+'rogue-draw.ogg']] : film
     ? [[0,performanceAudio(film)]]
     : shot ? [[0,shot]] : captured
       ? [[0, '/motion/' + s.id + '-' + action + '.ogg']]
