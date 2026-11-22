@@ -721,6 +721,12 @@ function footSound(p,ice) {
   p.stepSurface=ice?'ice':'';
   if(ice)fieldSound('ice-step',p);else sound('step',p.local?undefined:p);
 }
+function presentFieldCue(d) {
+  if (d.type!=='ice' && d.type!=='reconWave') return;
+  if (d.mesh.userData.heard || audio?.state!=='running') return;
+  d.mesh.userData.heard=true;
+  if (now-d.born<.55) fieldSound(d.type==='ice' ? 'ice-break' : 'recon-ping',d);
+}
 function spatialSteps(p, dt) {
   const speed = Math.hypot(p.vx, p.vz);
   const ice = p.iceUntil > now;
@@ -1375,6 +1381,7 @@ function addDevice(type, x, z, team, duration, w, d, h, color, owner, baseY) {
     mesh,
   };
   match.devices.push(device);
+  if (!isGuest()) presentFieldCue(device);
   if (
     type === 'lane' &&
     !match.devices.some(
@@ -3355,10 +3362,7 @@ function drawWorld(realTime) {
       }
       if(d.type==='ice' || d.type==='reconWave'){
         d.mesh.visible=false;
-        if(!d.mesh.userData.heard){
-          d.mesh.userData.heard=true;
-          if(now-d.born<.55)fieldSound(d.type==='ice'?'ice-break':'recon-ping',d);
-        }
+        presentFieldCue(d);
       }
       const cueAt = d.cueAt ?? (d.type === 'groundWave' ? d.start : undefined);
       if (cueAt !== undefined && now >= cueAt && d.mesh.userData.lastSound !== cueAt) {
@@ -4405,6 +4409,7 @@ function receiveState(s) {
     let copy = match.devices.find((v) => v.id === d.id);
     if (!copy) copy = addDevice(d.type, d.x, d.z, d.team, d.end - now, d.w, d.d, d.h, d.color, null, d.y);
     Object.assign(copy, d);
+    presentFieldCue(copy);
     copy.mesh.position.set(copy.x, copy.y + copy.h / 2, copy.z);
   }
   if (prev !== match.phase && match.phase === 'ended') {
