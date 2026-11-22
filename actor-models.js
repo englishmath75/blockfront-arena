@@ -1,6 +1,7 @@
 import { fitSkinOutline, muzzleAtMinX } from './skin-outline.js';
 import { recordedAction, weaponFilm } from './recorded-weapon.js';
 import { motionAction, sampleMotion } from './weapon-motion.js';
+import { bindFingers } from './finger-pose.js';
 import { unpack } from './compressed.js';
 import * as T from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -454,7 +455,7 @@ export function firstPerson() {
       gun === 'blades'
         ? Array.from({ length: 5 }, (_, i) => weapon.getObjectByName('Knife' + (i + 1)))
         : null;
-    state = { rig, eye, spark, knives, disposeSkin, armMixer, gunMixer, poses, name: '', equip: clock };
+    state = { rig, eye, spark, knives, disposeSkin, armMixer, gunMixer, poses, fingers: bindFingers(rig), name: '', equip: clock };
     ready = true;
   }
   function pose(tag, ratio) {
@@ -533,7 +534,9 @@ export function firstPerson() {
         tag = 'equip';
         ratio = (now - state.equip) / equipSeconds;
       }
+      state.fingers.restore();
       pose(tag, T.MathUtils.clamp(ratio, 0, 1));
+      if (!skill && motionAction(skin, tag)) state.fingers.apply(skin, tag, ratio);
       if (state.knives) {
         const mag = p.kit.special?.mag ?? 0;
         state.knives.forEach((knife, i) => {

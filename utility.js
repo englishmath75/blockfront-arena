@@ -38,7 +38,7 @@ const throws = {
   '뱀 이빨': ['fire', 24, 12, 6],
   '파편/탄': ['fragment', 18, 13, 4],
   '플래시/드라이브': ['flash', 18, 12, 1.6],
-  커브볼: ['curve', 10, 0, 0.55],
+  커브볼: ['curve', 10, 0, 0.6],
   '인도하는 빛': ['hawk', 18, 0, 2],
   '연막 폭발': ['cloud', 24, 0, 2],
   '제로/포인트': ['knife', 27, 10, 7],
@@ -98,7 +98,7 @@ export function launch(name, p, params, now, id) {
           ? 8
           : 3
         : type === 'flash' && params.alt
-          ? 0.95
+          ? 1
           : fuse),
     turn: type === 'curve' ? (params.alt ? -3.5 : 3.5) : 0,
     created: now,
@@ -108,6 +108,9 @@ export function launch(name, p, params, now, id) {
   };
 }
 export function flight(a, dt, now, world, devices, owner) {
+  if (['haunt','seize'].includes(a.type) && now >= a.end && !a.dropping) {
+    Object.assign(a, { vx:0, vy:-10, vz:0, dropping:true, end:now+10 });
+  }
   if (now >= a.end) return true;
   if (a.stuck) return false;
   if ((a.steer && owner) || (a.type === 'suspension' && owner)) {
@@ -154,7 +157,7 @@ export function flight(a, dt, now, world, devices, owner) {
   a.x += norm.x * 0.035;
   a.y += norm.y * 0.035;
   a.z += norm.z * 0.035;
-  if (a.type==='slow' && norm.y < .55) {
+  if (['slow','mosh','haunt','seize'].includes(a.type) && norm.y < .55) {
     vel.reflect(norm).multiplyScalar(.65);
     Object.assign(a,{vx:vel.x,vy:vel.y,vz:vel.z});
     return false;
@@ -169,7 +172,7 @@ export function flight(a, dt, now, world, devices, owner) {
   }
   if (a.type === 'flash' && a.name === '플래시/드라이브') {
     vel.reflect(norm).multiplyScalar(0.52);
-    Object.assign(a, { vx: vel.x, vy: vel.y, vz: vel.z, end: Math.min(a.end, now + 0.8) });
+    Object.assign(a, { vx: vel.x, vy: vel.y, vz: vel.z, end: a.alt ? a.end : Math.min(a.end, now + 0.8) });
     return false;
   }
   if (a.type === 'blindside' && !a.stuck) {

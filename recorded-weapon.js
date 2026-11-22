@@ -1,9 +1,11 @@
 import films from './weapon-films.json' with { type: 'json' };
 import gestures from './hand-actions.json' with { type: 'json' };
 import { motionAction } from './weapon-motion.js';
+import chromas from './motion-chromas.json' with { type: 'json' };
+const hasFilmColor = new Set(chromas);
 
 export function recordedAction(s, name, sound = false) {
-  const gesture=gestures[s?.variant ?? s?.id];
+  const gesture=gestures[s?.variant ?? s?.id] ?? (hasFilmColor.has(s?.variant) ? gestures[s.id] : null);
   if(gesture && s.level>=gesture.level && gesture.actions[name]) return gesture.actions[name];
   const film = films[s?.id];
   if (!film) return;
@@ -16,7 +18,9 @@ export function weaponFilm() {
   const canvas = document.getElementById('performance-layer');
   const ctx = canvas.getContext('2d');
   const cache = new Map();
+  const colored = new Map();
   let last = '',
+    prepared = '',
     equippedAt = 0;
   function image(url) {
     let img = cache.get(url);
@@ -31,14 +35,48 @@ export function weaponFilm() {
   function page(action, index) {
     return image('/performances/' + action.key + '-' + index + '.webp');
   }
+  function tinted(base,variant) {
+    const lut = variant && image('/motion/chromas/' + variant + '.png');
+    if (!base.naturalWidth || (lut && !lut.naturalWidth)) return false;
+    let sheet = base;
+    if (lut) {
+      const key = variant + base.src;
+      sheet = colored.get(key);
+      if (!sheet) {
+        sheet = document.createElement('canvas');
+        sheet.width = base.naturalWidth;
+        sheet.height = base.naturalHeight;
+        const target = sheet.getContext('2d', {willReadFrequently:true});
+        const palette = document.createElement('canvas');
+        palette.width = 16;
+        palette.height = 256;
+        const source = palette.getContext('2d');
+        source.drawImage(lut,0,0);
+        const table = source.getImageData(0,0,16,256).data;
+        target.drawImage(base,0,0);
+        const pixels = target.getImageData(0,0,sheet.width,sheet.height);
+        const data = pixels.data;
+        for (let i=0; i<data.length; i+=4) {
+          if (data[i+3] === 0) continue;
+          const bin = ((data[i]>>4)*256 + (data[i+1]>>4)*16 + (data[i+2]>>4))*4;
+          for (let c=0; c<3; c++) data[i+c] += 2*(table[bin+c]-128);
+        }
+        target.putImageData(pixels,0,0);
+        colored.set(key,sheet);
+        if (colored.size>4) colored.delete(colored.keys().next().value);
+      }
+    }
+    return sheet;
+  }
   function captured(s, p, now, reloadTime) {
-    if (s?.variant || p.ads) return false;
+    if (p.ads || (s?.variant && !hasFilmColor.has(s.variant))) return false;
     const name = p.reloading > now ? 'reload' : p.inspectUntil > now ? 'inspect' : null;
     const action = name && motionAction(s, name);
     const tile = action?.tile;
     if (!tile) return false;
-    const sheet = image('/motion/' + s.id + '-' + name + '.webp');
-    if (!sheet.complete || !sheet.naturalWidth) return false;
+    const base = image('/motion/' + s.id + '-' + name + '.webp');
+    const sheet = tinted(base,s.variant);
+    if (!sheet) return false;
     const progress =
       name === 'reload' ? 1 - (p.reloading - now) / reloadTime : 1 - (p.inspectUntil - now) / action.seconds;
     const frame = Math.min(tile.frames - 1, Math.max(0, Math.floor(progress * tile.frames)));
@@ -70,6 +108,20 @@ export function weaponFilm() {
   return {
     hide,
     draw(s, p, now, enabled, reloadTime) {
+      if (enabled && s && prepared!==s.profileKey) {
+        prepared=s.profileKey;
+        for (const name of ['reload','inspect']) {
+          const gesture=recordedAction(s,name);
+          if (gesture) {
+            page(gesture,0);
+            if (s.variant && gestures[s.id]?.actions[name]===gesture) image('/motion/chromas/'+s.variant+'.png');
+          }
+          else if ((!s.variant || hasFilmColor.has(s.variant)) && motionAction(s,name)?.tile) {
+            image('/motion/'+s.id+'-'+name+'.webp');
+            if (s.variant) image('/motion/chromas/'+s.variant+'.png');
+          }
+        }
+      }
       const idle = recordedAction(s, 'idle');
       const gesture = p.reloading>now ? recordedAction(s,'reload') : p.inspectUntil>now ? recordedAction(s,'inspect') : null;
       if (!enabled || (!idle && !gesture)) {
@@ -114,6 +166,10 @@ export function weaponFilm() {
           hide();
           return false;
         }
+      }
+      if (s.variant && gesture && gestures[s.id]?.actions[p.reloading>now ? 'reload':'inspect']===action) {
+        img=tinted(img,s.variant);
+        if (!img) { hide(); return false; }
       }
       const width = canvas.clientWidth || window.innerWidth,
         height = canvas.clientHeight || window.innerHeight;

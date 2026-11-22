@@ -76,7 +76,8 @@ export function skinProfile(s, choice = {}) {
     'd6c7ff28-467e-bb3f-3c0c-c5b9445e55ca': 'singularity',
   }[s.id];
   if (levels.includes('Finisher') && p.finishOn) {
-    const saved = variantFinishes[p.variant] ?? 'set-' + s.banner;
+    const weaponFinish = 'skin-' + s.id;
+    const saved = variantFinishes[p.variant] ?? (Object.hasOwn(finishers,weaponFinish) ? weaponFinish : 'set-' + s.banner);
     p.family = Object.hasOwn(finishers, saved)
       ? saved
       : (p.family ??

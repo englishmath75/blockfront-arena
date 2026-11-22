@@ -7,6 +7,16 @@ const voices = new Set(),
   clips = new Map();
 let reloadSource,
   audioEpoch = 0;
+const finishImages = new Map();
+function finishImage(family) {
+  if (!finishImages.has(family)) {
+    const image = new Image();
+    image.src = '/effects/finish-' + family + '.webp';
+    finishImages.set(family,image);
+    if (finishImages.size>3) finishImages.delete(finishImages.keys().next().value);
+  }
+  return finishImages.get(family);
+}
 const path = '/weapon-audio/';
 export const palettes = {
   rogue: '#ee443f',
@@ -25,6 +35,10 @@ export const palettes = {
 };
 export function prepareSkin(s) {
   if (!s) return;
+  if (s.finishOn && filmed[s.family]) {
+    finishImage(s.family);
+    if (filmed[s.family].audio !== false) prime('/effects/finish-'+s.family+'.ogg');
+  }
   loading ??= fetch('/weapon-audio/events.json')
     .then((r) => {
       if (r.ok) return r.json();
@@ -36,9 +50,10 @@ export function prepareSkin(s) {
     .catch(() => {
       loading = null;
     });
-  for (const a of ['fire', 'reload', 'equip']) {
+  for (const a of ['fire', 'reload', 'equip','inspect']) {
     const f = recordedAction(s, a, true);
     if (f) prime('/performances/' + f.key + '.ogg');
+    else if (motionAction(s,a)) prime('/motion/'+s.id+'-'+a+'.ogg');
   }
   if (s.performance) for (const action of ['shot', 'reload']) prime(path + s.id + '-' + action + '.ogg');
   void loading.then(() => {
@@ -112,7 +127,15 @@ export function playSkinEvent(s, action, duration, volume) {
     voices.add(voice);
     const done = () => voices.delete(voice);
     a.onended = a.onerror = done;
+    const startAt=performance.now()+pct*.01*duration*1000;
     const start = () => {
+      if (!voices.has(voice)) return;
+      if ((film || captured) && (action==='reload' || action==='inspect')) {
+        if (a.readyState<2) { a.addEventListener('canplay',start,{once:true}); a.load(); return; }
+        const offset=Math.max(0,(performance.now()-startAt)*.001*a.playbackRate);
+        if (offset>=a.duration) { done(); return; }
+        a.currentTime=offset;
+      }
       void a.play().catch(done);
     };
     if (pct > 0) voice.timer = setTimeout(start, pct * 0.01 * duration * 1000);
@@ -203,7 +226,8 @@ export function finisher(scene, family, point, now) {
   if (!palettes[family]) return null;
   const sequence = filmed[family];
   if (sequence) {
-    const texture = new T.TextureLoader().load('/effects/finish-' + family + '.webp');
+    const image = finishImage(family);
+    const texture = new T.Texture(image);
     texture.colorSpace = T.SRGBColorSpace;
     texture.generateMipmaps = false;
     texture.minFilter = T.LinearFilter;
@@ -228,6 +252,8 @@ export function finisher(scene, family, point, now) {
           material.dispose();
           return false;
         }
+        sprite.visible = image.complete && image.naturalWidth>0;
+        if (sprite.visible && !texture.version) texture.needsUpdate = true;
         texture.offset.set((frame % 8) / 8, 1 - (1 + Math.floor(frame / 8)) / sequence.rows);
         return true;
       },
@@ -379,7 +405,7 @@ export function playBase(context, gun, action, volume, balance) {
   return true;
 }
 
-export function recordedEffect(id, volume) {
+export function recordedEffect(id, volume, elapsed) {
   const bundledFinisher = id.startsWith('finish-') && filmed[id.slice(7)]?.audio === true;
   if (
     !bundledFinisher &&
@@ -403,5 +429,18 @@ export function recordedEffect(id, volume) {
   const file = id === 'blade-throw' ? id + '-' + (1 + Math.floor(Math.random() * 3)) : id;
   const a = prime('/effects/' + file + '.ogg').cloneNode();
   a.volume = Math.max(0, Math.min(1, volume * 0.6));
-  void a.play().catch(() => {});
+  if (!elapsed) {
+    void a.play().catch(() => {});
+    return;
+  }
+  let cancelled=false;
+  const start = () => {
+    const at=Math.max(0,elapsed());
+    if (cancelled || !Number.isFinite(a.duration) || at>=a.duration) return;
+    a.currentTime=at;
+    void a.play().catch(() => {});
+  };
+  if (a.readyState>=2) start();
+  else { a.addEventListener('canplay',start,{once:true}); a.load(); }
+  return () => { cancelled=true; a.removeEventListener('canplay',start); a.pause(); };
 }

@@ -6,8 +6,8 @@ const waves = {
   균열: { color: '#ffc173', effect: 'concuss', width: 7, speed: 160 },
   '지진 강타': { color: '#f59445', effect: 'quake', width: 18, reach: 32, speed: 18 },
   황혼: { color: '#8d719d', effect: 'terror', width: 20, reach: 40, speed: 24 },
-  '초점 교차': { color: '#ffe5a2', effect: 'hinder', width: 14, reach: 45, speed: 24 },
-  '요동치는 베이스': { color: '#dd87fb', effect: 'bass', width: 18, reach: 36, speed: 22 },
+  '초점 교차': { color: '#ffe5a2', effect: 'hinder', width: 13.5, reach: 36, speed: 54 },
+  '요동치는 베이스': { color: '#dd87fb', effect: 'bass', width: 46.2, reach: 40, speed: 80 },
 };
 const helpers = {
   '폭발 봇': ['boom-bot', 40, 5, 5.5, '#fa9c64'],
@@ -50,7 +50,8 @@ export function castField(name, p, ground, params, ctx) {
     helper = helpers[name];
   if (wave) {
     const reach = wave.reach ?? 8 + 40 * Math.min(1, Math.max(0, Number(params.charge) || 0));
-    const windup = stat['windup time'] ?? stat['channel time'] ?? stat['cast time'] ?? 0.6;
+    const offset = wave.effect==='hinder' ? stat['distance between waylay and aoe'] : 0;
+    const windup = wave.effect==='hinder' ? stat['channel time']+stat.windup : stat['windup time'] ?? stat['channel time'] ?? stat['cast time'] ?? 0.6;
     const d = add(
       'groundWave',
       p.x,
@@ -70,8 +71,8 @@ export function castField(name, p, ground, params, ctx) {
       speed: wave.speed,
       start: time + windup,
       touched: [],
-      originX: p.x,
-      originZ: p.z,
+      originX: p.x-Math.sin(p.yaw)*offset,
+      originZ: p.z-Math.cos(p.yaw)*offset,
     });
     return true;
   }
@@ -126,7 +127,7 @@ export function castField(name, p, ground, params, ctx) {
   }
   if (name === '신경 절도') {
     const body = players
-      .filter((o) => o.down && ctx.hostile(p, o) && dist(o, p) < 20)
+      .filter((o) => o.down && ctx.hostile(p, o) && dist(o, p) <= stat['max cast distance'])
       .sort((a, b) => dist(a, ground) - dist(b, ground))[0];
     if (!body || !visible({ x: p.x, y: p.y + p.height, z: p.z }, body, 21)) return false;
     const d = add('agentPulse', body.x, body.z, 4.15, 0.42, 0.42, 0.45, '#81daec', p, body.y + 0.23);
@@ -168,17 +169,21 @@ export function tickField(d, owner, dt, ctx) {
     const advance = Math.max(0, (time - d.start) * d.speed),
       sin = Math.sin(d.angle),
       cos = Math.cos(d.angle);
-    d.x = d.originX - sin * Math.min(d.reach, advance);
-    d.z = d.originZ - cos * Math.min(d.reach, advance);
+    const effect = waves[d.name].effect;
+    const front = effect==='hinder' ? d.reach*.5 : Math.min(d.reach, advance);
+    d.x = d.originX - sin * front;
+    d.z = d.originZ - cos * front;
     if (time < d.start) return true;
+    if (effect==='hinder') owner.hasteUntil=d.start+stat['buff duration'];
     for (const o of players) {
       if (o.down || o === owner || d.touched.includes(o.id)) continue;
       const dx = o.x - d.originX,
         dz = o.z - d.originZ,
         along = -dx * sin - dz * cos;
-      if (along < 0 || along > d.reach || along > advance + 1 || Math.abs(dx * cos - dz * sin) > d.w / 2)
-        continue;
-      const effect = waves[d.name].effect;
+      const lateral=Math.abs(dx*cos-dz*sin);
+      if (along<0 || along>d.reach || lateral>d.w/2) continue;
+      if (effect==='hinder' ? lateral>advance : along>advance+1) continue;
+      if (effect==='bass' && (Math.hypot(dx,dz)>d.reach || lateral>along*Math.tan(Math.PI/6))) continue;
       if (effect === 'terror' && !hostile(owner, o)) continue;
       d.touched.push(o.id);
       if (effect === 'terror') {
@@ -186,9 +191,10 @@ export function tickField(d, owner, dt, ctx) {
         o.deafUntil = time + 8;
         o.trailEnd = time + 8;
       } else if (effect === 'bass') {
-        move(o, -sin * 3, -cos * 3);
-        o.deafUntil = time + 4;
-        o.tag = time + 4;
+        for (let step=0;step<20;step++) move(o,-sin*.25,-cos*.25);
+        o.deafUntil = o.slowUntil = time+stat['debuff duration'];
+      } else if (effect==='hinder') {
+        o.hinderedUntil=time+stat['debuff duration'];
       } else {
         o.tag = time + (stat['concuss duration'] ?? stat['hinder duration'] ?? 4);
         if (effect === 'quake') o.vy = 6;
@@ -264,13 +270,15 @@ export function tickField(d, owner, dt, ctx) {
     d.angle = Math.atan2(d.x - to.x, d.z - to.z);
   } else if (d.kind === 'dizzy') {
     d.y = d.originY + Math.sin(Math.min(1, (time - d.start) / 1.2) * Math.PI) * 0.8;
-    if (time >= d.start + 0.35 && !d.fired) {
-      d.fired = true;
-      for (const o of close)
-        if (visible(d, o, 20)) {
-          o.plasmaUntil = time + 1.5;
-          ctx.trace(d, o, '#60aaff');
-        }
+    d.acquired ??= {};
+    for (const o of close) {
+      if (d.acquired[o.id]===-1) continue;
+      if (!visible(d,o,stat['max detection distance'])) { delete d.acquired[o.id]; continue; }
+      d.acquired[o.id] ??= time;
+      if (time<d.acquired[o.id]+stat['blind windup on target acquisition']) continue;
+      d.acquired[o.id]=-1;
+      o.plasmaUntil=time+stat['effective active duration'];
+      ctx.trace(d,o,'#60aaff');
     }
   } else if (
     d.kind === 'seeker' ||
@@ -282,7 +290,8 @@ export function tickField(d, owner, dt, ctx) {
     if (d.kind === 'alarmbot' && dist(d, owner) > 40) return true;
     if (target) {
       d.angle = Math.atan2(d.x - target.x, d.z - target.z);
-      if (d.kind === 'alarmbot') d.speed = 6;
+      if (d.kind === 'alarmbot') d.speed = stat['movement speed'];
+      if (d.kind === 'prowler') d.speed = stat['travel speeds'];
     } else if (d.kind === 'prowler' && owner.guiding) d.angle = owner.yaw;
     const reach = d.kind === 'wingman' ? 6 : d.kind === 'prowler' ? 1.6 : 1.5;
     if (target && hit < reach) {
@@ -291,6 +300,7 @@ export function tickField(d, owner, dt, ctx) {
         ring(d, owner, reach);
         if (d.kind === 'seeker' || d.kind === 'prowler')
           target.nearsight = time + (stat['nearsight duration'] ?? 3);
+        if (d.kind==='seeker') target.slowUntil=time+stat['slow duration'];
         if (d.kind === 'boom-bot') hurt(target, Math.round(30 + 50 * (1 - Math.min(1, hit / 2))), owner);
         if (d.kind === 'wingman') {
           for (const enemy of close) {
@@ -320,7 +330,7 @@ export function tickField(d, owner, dt, ctx) {
     const trigger =
       d.kind === 'sonic-sensor' ? hit < 7 && loud : d.kind === 'trademark' ? hit < 10 : hit < 2.2;
     if (d.kind !== 'turret' && trigger) {
-      d.triggerAt ??= time + (stat['windup time'] ?? 0.45);
+      d.triggerAt ??= time + (stat['windup time'] ?? stat.windup ?? 0.45);
       if (time >= d.triggerAt) {
         ring(d, owner, 5);
         if (d.kind === 'trademark')

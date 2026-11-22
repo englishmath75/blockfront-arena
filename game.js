@@ -1,6 +1,7 @@
 import { killBanner } from './kill-banner.js';
 import { onIce } from './terrain-feedback.js';
-import { fieldAudio } from './field-audio.js';
+import { fieldAudio, prepareFieldAudio } from './field-audio.js';
+import { tickGroundField } from './ground-fields.js';
 import { castField, tickField, fieldProp } from './agent-fields.js';
 import { createZone, tickZone } from './ability-zones.js';
 import voices from './ability-voice.json' with { type: 'json' };
@@ -212,6 +213,7 @@ function soundOn() {
   if (!window.AudioContext) return;
   try {
     audio ??= new AudioContext();
+    prepareFieldAudio(audio);
     if (!buffer) {
       buffer = audio.createBuffer(1, Math.floor(audio.sampleRate * 0.21), audio.sampleRate);
       const samples = buffer.getChannelData(0);
@@ -258,7 +260,7 @@ function sound(kind, at) {
         currentSkin(p),
         kind,
         kind === 'reload'
-          ? weaponFor(p).reload
+          ? p.reloadDuration || weaponFor(p).reload
           : kind === 'equip'
             ? weaponFor(p).equip
             : kind === 'inspect'
@@ -276,7 +278,7 @@ function sound(kind, at) {
       playSkinEvent(
         currentSkin(at),
         kind,
-        kind === 'reload' ? weaponFor(at).reload : 0.5,
+        kind === 'reload' ? at.reloadDuration || weaponFor(at).reload : 0.5,
         (settings.volume * 0.82) / (1 + dist * 0.32),
       )
     )
@@ -427,6 +429,9 @@ function respawn(p, slot = p.i) {
     swingAt: 0,
     bladeRetireAt: 0,
     decayLost: 0,
+    seizeRecoveryUntil: 0,
+    seizeRecoveryRate: 0,
+    hinderedUntil: 0, slowUntil: 0, hasteUntil: 0, reloadDuration: 0,
     decayUntil: 0,
     nearsight: 0,
     revealEnd: 0,
@@ -804,7 +809,8 @@ function walk(dt, p = match.player, keys = localKeys) {
     dz,
     (p.sprinting ? 9.11 : SPEED[p.mode]) *
       (p.ads ? (weaponFor(p).ads?.runSpeedMultiplier ?? 0.75) : weaponFor(p).move) *
-      Math.min(p.detainedUntil > now ? 0.18 : p.tag > now ? 0.57 : 1,p.iceUntil>now?.5:1),
+      (p.hasteUntil>now?1.1:1) * Math.min(p.detainedUntil > now ? 0.18 : p.tag > now ? 0.57 : 1,
+        Math.max(p.iceUntil,p.slowUntil,p.hinderedUntil)>now ? .5 : 1),
     dt,
   );
   if (p.slideUntil > now) {
@@ -812,7 +818,8 @@ function walk(dt, p = match.player, keys = localKeys) {
     p.vx = p.slideX * speed;
     p.vz = p.slideZ * speed;
   }
-  if (p.tether?.until > now && Math.hypot(p.x + p.vx * dt - p.tether.x, p.z + p.vz * dt - p.tether.z) > 5) {
+  if (p.tether?.until > now && Math.hypot(p.x + p.vx * dt - p.tether.x, p.z + p.vz * dt - p.tether.z) >
+      Math.max(p.tether.radius ?? 5, Math.hypot(p.x-p.tether.x,p.z-p.tether.z))) {
     p.vx = p.vz = 0;
   }
   const attackStart = isAttack(p);
@@ -828,7 +835,7 @@ function walk(dt, p = match.player, keys = localKeys) {
   }
   if (onFloor && keys.has('Space') && !p.jumpHeld && p.mode !== 'crouch') {
     const ice=p.iceUntil>now;
-    p.vy=ice?3.96:5.6;
+    p.vy=ice||p.slowUntil>now?3.96:5.6;
     if(ice){p.stepCount++;footSound(p,true);}
   }
   p.jumpHeld = keys.has('Space');
@@ -1136,7 +1143,7 @@ function shoot(p, alt = false, follow = false) {
   p.nextShot =
     now +
     (pattern?.interval ?? (p.ads && stats.ads ? 1 / stats.ads.fireRate : stats.interval)) *
-      (p.stimUntil > now ? 0.85 : 1);
+      (p.stimUntil > now ? 0.85 : 1)*(p.hinderedUntil>now?2:1);
   if (adsBurst && p.burstRemaining > 0) p.nextShot = now + 0.065;
   const origin = vec(p.x, p.y + p.height, p.z);
   const shotStats =
@@ -1251,11 +1258,12 @@ function reload(p) {
   p.burstRemaining = 0;
   p.inspectUntil = 0;
   if (p.local) stopAnimationAudio();
-  p.reloading = now + stats.reload;
+  p.reloadDuration=stats.reload*(p.hinderedUntil>now?2:1);
+  p.reloading=now+p.reloadDuration;
   sound('reload', p.local ? undefined : p);
 }
 function updateWeapon(p, dt) {
-  p.bloom = Math.max(0, p.bloom - dt * 0.032);
+  p.bloom = Math.max(0, p.bloom - dt * (p.hinderedUntil>now?.016:.032));
   if (!p.reloading || now < p.reloading) return;
   const weapon = heldWeapon(p);
   const need = Math.min(weapon.reserve, weaponFor(p).size - weapon.mag);
@@ -1283,7 +1291,7 @@ function equip(slot, p = match.player) {
   }
   p.burstRemaining = 0;
   p.reloading = 0;
-  p.nextShot = now + weaponFor(p).equip;
+  p.nextShot = now + weaponFor(p).equip*(p.hinderedUntil>now?2:1);
   p.bloom = 0;
 }
 
@@ -1692,6 +1700,7 @@ function ability(i, p = match.player, params = {}) {
   if (slotName === '인도하는 빛' && !p.down && active() && !(p.suppressed > now)) {
     const bird = match.arrows.find((a) => a.owner === p.id && a.type === 'hawk');
     if (bird) {
+      bird.activatedAt ??= now;
       bird.end = Math.min(bird.end, now + 0.3);
       return;
     }
@@ -2394,6 +2403,12 @@ function ability(i, p = match.player, params = {}) {
     announce(name);
   }
 }
+function flashPlayer(player, source, duration) {
+  const dir=vec(source.x-player.x,source.y-player.y-player.height,source.z-player.z).normalize();
+  const facing=aim(player.yaw,player.pitch).dot(dir);
+  const strength=T.MathUtils.smoothstep(facing,-.65,.5);
+  player.blindUntil=Math.max(player.blindUntil??0,now+.28+(duration-.28)*strength);
+}
 function hasSight(point, o, limit) {
   const from = vec(point.x, point.y + 0.12, point.z),
     delta = vec(o.x, o.y + o.height * 0.8, o.z).sub(from),
@@ -2489,7 +2504,7 @@ function tickProjectiles(dt) {
     if (['relay', 'delivery', 'net', 'seize', 'haunt', 'mosh', 'meddle'].includes(a.type)) {
       const t = a.type,
         k = t === 'relay' || t === 'delivery' ? 'concuss' : t,
-        rad = { relay: 5, delivery: 4, net: 6.5, seize: 6.58, haunt: 30, mosh: 3.5, meddle: 5 }[t],
+        rad = { relay: 5, delivery: 4, net: 6.5, seize: 6.58, haunt: 30, mosh: 6.2, meddle: 5 }[t],
         delay =
           t === 'relay'
             ? 1
@@ -2499,7 +2514,7 @@ function tickProjectiles(dt) {
                 ? 3
                 : t === 'haunt'
                   ? timing['귀체'].windup
-                  : 0.15;
+                  : t === 'seize' ? timing['포박'].windup : 0.15;
       const d = place(
         k,
         delay + (t === 'seize' ? 4.5 : t === 'haunt' ? 1.5 : 0.28),
@@ -2538,15 +2553,11 @@ function tickProjectiles(dt) {
     else if (['flash', 'curve', 'hawk', 'flare'].includes(a.type)) {
       for (const o of match.players)
         if (!o.down && hasSight(a, o, 24)) {
-          const dir = vec(a.x - o.x, a.y - o.y - o.height, a.z - o.z).normalize();
           const duration =
             a.type === 'hawk'
-              ? 1 + 1.25 * Math.min(1, (now - a.created) / 0.75)
+              ? 1 + 1.25 * Math.min(1, ((a.activatedAt ?? now) - a.created) / 0.75)
               : (timing[a.name]?.['max blind duration'] ?? timing[a.name]?.['max flash duration'] ?? 1.5);
-          o.blindUntil = Math.max(
-            o.blindUntil ?? 0,
-            now + (aim(o.yaw, o.pitch).dot(dir) > 0.45 ? duration : 0.35),
-          );
+          flashPlayer(o,a,duration);
         }
       place('pulse', 0.16, 1.5, 1.4, '#fff5ce', a.y);
     } else {
@@ -2793,7 +2804,7 @@ function step(dt) {
   tickMechanisms(world.mechanisms, match.players, dt, now, environmentDeath);
   for (const p of match.players) {
     if (!p.down && p.decayLost > 0 && now >= p.decayUntil) {
-      const restored = Math.min(p.decayLost, 50 * dt);
+      const restored = Math.min(p.decayLost, (p.seizeRecoveryUntil>now ? p.seizeRecoveryRate : 50) * dt);
       p.decayLost -= restored;
       p.hp = Math.min(100, p.hp + restored);
     }
@@ -3048,6 +3059,7 @@ function step(dt) {
       return false;
     }
     const caster = match.players.find((p) => p.id === d.owner);
+    tickGroundField(d,caster,{time:now, players:match.players, visible:hasSight, hostile, hurt});
     if (d.kind === 'stabilize' && caster) {
       const ally = match.players.find(
         (o) => o !== caster && o.team === caster.team && !o.down && o.channel && range(o, d) < 2,
@@ -3170,7 +3182,7 @@ function step(dt) {
       d.fortify = 0;
     }
     if (
-      ['eye', 'haunt', 'aftershock', 'wallFlash', 'concuss', 'net', 'seize', 'mosh', 'meddle'].includes(
+      ['eye', 'haunt', 'aftershock', 'wallFlash', 'concuss', 'net', 'meddle'].includes(
         d.type,
       ) &&
       now >= (d.start ?? 0) &&
@@ -3189,15 +3201,13 @@ function step(dt) {
         if (!hasSight(center, o, r)) continue;
         if (d.type === 'eye' || d.type === 'wallFlash') {
           const direction = vec(d.x - o.x, d.y - o.y - o.height, d.z - o.z).normalize();
-          if (aim(o.yaw, o.pitch).dot(direction) > 0.25) {
-            if (d.type === 'eye') o.nearsight = now + 0.25;
-            else o.blindUntil = now + (d.flashDuration ?? timing['섬광 폭발']['max blind duration'] ?? 2.25);
-          }
+          if (d.type === 'wallFlash') flashPlayer(o,d,d.flashDuration ?? timing['섬광 폭발']['max blind duration']);
+          else if (aim(o.yaw, o.pitch).dot(direction) > 0.25) o.nearsight = now + 0.25;
         } else if (d.type === 'haunt') {
           o.revealTeam = d.team;
           o.revealEnd = now + 0.8;
           o.trailEnd = now + timing['귀체']['trail duration'];
-        } else if (d.type === 'aftershock' || d.type === 'mosh') hurt(o, d.type === 'mosh' ? 150 : 80, owner);
+        } else if (d.type === 'aftershock') hurt(o, 80, owner);
         else if (d.type === 'meddle') {
           if (!(o.decayUntil > now)) {
             const loss = Math.min(90, Math.max(0, o.hp - 1));
@@ -3206,11 +3216,9 @@ function step(dt) {
           }
           o.decayUntil = now + 3;
         } else if (d.type === 'net') o.netUntil = now + 6;
-        else if (d.type === 'seize') {
-          o.tether = { x: d.x, z: d.z, until: d.end };
-        } else o.tag = now + 2.5;
+        else o.tag = now + 2.5;
       }
-      d.next = now + (['eye', 'haunt', 'seize'].includes(d.type) ? 0.15 : d.type === 'aftershock' ? 0.65 : 9);
+      d.next = now + (['eye', 'haunt'].includes(d.type) ? 0.15 : d.type === 'aftershock' ? 0.65 : 9);
     }
     if (d.type === 'dronePulse' && now >= d.born + 0.4) {
       const r = Math.min(16, ((now - d.born - 0.4) * 16) / 0.7),
@@ -3303,11 +3311,18 @@ function step(dt) {
 function drawWorld(realTime) {
   world.updateMechanisms();
   world.updateTerrainFeedback(match?.devices??[],now);
+  if (!match?.endFx && world.lastFx != null) {
+    world.stopFinishSound?.();
+    world.finishFx?.update(Infinity);
+    world.lastFx = world.finishFx = null;
+  }
   if (match?.endFx && world.lastFx !== match.endFx.at) {
-    world.lastFx = match.endFx.at;
-    recordedEffect(
+    const start = world.lastFx = match.endFx.at;
+    world.stopFinishSound?.();
+    world.stopFinishSound = recordedEffect(
       'finish-' + match.endFx.family,
       settings.volume / (1 + range(match.player, match.endFx) * 0.09),
+      () => now-start,
     );
     world.finishFx?.update(Infinity);
     world.finishFx = finisher(world.scene, match.endFx.family, match.endFx, match.endFx.at);
@@ -3355,6 +3370,14 @@ function drawWorld(realTime) {
         mesh.position.set(d.x, d.y + d.h / 2, d.z);
         mesh.rotation.y = d.angle ?? 0;
         if (d.type === 'groundWave') mesh.visible = now >= d.start;
+        if (d.type==='groundWave' && d.name==='초점 교차') {
+          const width=Math.max(.02,Math.min(d.w,2*(now-d.start)*d.speed));
+          mesh.scale.set(width,.09,d.reach);
+          mesh.material.opacity=.42+.22*Math.sin((now-d.start)*22);
+        } else if (d.type==='groundWave' && d.name==='요동치는 베이스') {
+          const advance=Math.min(d.reach,Math.max(0,(now-d.start)*d.speed));
+          mesh.scale.set(Math.max(.1,2*advance*Math.tan(Math.PI/6)),.42,1.0);
+        }
         if (d.type === 'decoy' && !mesh.userData.requested) {
           mesh.userData.requested = true;
           attachProp(mesh, 'yoru', 1.35);
@@ -3434,7 +3457,7 @@ function drawWorld(realTime) {
     world.animation ??= weaponAnimation(world);
     world.animation.draw(
       skin,
-      watch.reloading ? Math.max(0, 1 - (watch.reloading - now) / weaponFor(watch).reload) : 0,
+      watch.reloading ? Math.max(0, 1 - (watch.reloading - now) / (watch.reloadDuration || weaponFor(watch).reload)) : 0,
       watch.inspectUntil > now ? 1 - (watch.inspectUntil - now) / inspectLength(gun, skin) : 0,
       now,
       now - watch.shot,
@@ -3454,7 +3477,7 @@ function drawWorld(realTime) {
       skin,
       now,
       !watch.pilot && !watch.down && !(liveSkill === '어둠의 장막' && alternateView),
-      weaponFor(watch).reload,
+      watch.reloadDuration || weaponFor(watch).reload,
       liveSkill,
     );
     if (firstReady || (liveSkill === '어둠의 장막' && alternateView)) world.showSkill('', 0, now);
@@ -3717,6 +3740,7 @@ function drawHud() {
   const posture =
     p.mode === 'crouch' ? '앉기 · 무음' : p.mode === 'walk' ? '걷기 · 무음' : meter < 0.2 ? '정지' : '달리기';
   document.body.classList.toggle('blind', p.blindUntil > now);
+  if (p.blindUntil > now) document.body.style.setProperty('--flash-opacity', Math.min(1,(p.blindUntil-now)/.38));
   document.body.classList.toggle('plasma-blind', p.plasmaUntil > now);
   get('health').innerHTML =
     '<strong><i aria-hidden="true">✚</i> ' +
@@ -3845,7 +3869,10 @@ function drawHud() {
         ? match.hudText
         : mechanismHint || prompt;
   get('message').innerHTML =
-    (p.scannedUntil>now?'<strong class="field-alert scanned">위치 발각</strong>':p.iceUntil>now?'<strong class="field-alert chilled">둔화</strong>':'') +
+    (p.scannedUntil>now?'<strong class="field-alert scanned">위치 발각</strong>':'') +
+    (p.deafUntil>now?'<strong class="field-alert scanned">청각 차단</strong>':'') +
+    (p.hinderedUntil>now?'<strong class="field-alert chilled">방해</strong>':
+      Math.max(p.iceUntil,p.slowUntil)>now?'<strong class="field-alert chilled">둔화</strong>':'') +
     (line ? '<span>' + escape(line) + '</span>' : '') +
     (core.actor === p
       ? '<progress aria-label="스파이크 작업 진행률" max="' +
@@ -4185,6 +4212,7 @@ async function load(roster) {
     return;
   }
   if (token !== transition) return;
+  world.stopFinishSound?.();
   world.dispose();
   setArena(map);
   world = createWorld(canvas, data);
@@ -4206,7 +4234,7 @@ const stateKeys =
     ' ',
   );
 stateKeys.push(
-  'scannedUntil','iceUntil','stepSurface',
+  'scannedUntil','iceUntil','stepSurface','tether','tag','hinderedUntil','slowUntil','hasteUntil','reloadDuration',
   'lastCast',
   'jammedUntil',
   'detainedUntil',

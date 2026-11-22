@@ -1,4 +1,5 @@
 import * as T from 'three';
+import { fieldReach } from './ground-fields.js';
 const ball = new T.SphereGeometry(0.5, 40, 28),
   flat = new T.CylinderGeometry(0.5, 0.5, 1, 48),
   ring = new T.SphereGeometry(0.5, 28, 16),
@@ -47,6 +48,20 @@ else if(kind<1.5){
   float top=.91+.09*noise(vec3(distanceAlong*.75,t*.8,4.));
   a*=1.-smoothstep(top-.025,top,v.y);
 }
+else if(kind>4.5){
+  float radius=length(p.xz)*2., angle=atan(p.z,p.x);
+  float grain=noise(vec3(p.xz*19.,t*1.4));
+  float edge=smoothstep(.86,.97,radius);
+  if(kind<5.5){
+    float cells=sin(27.*p.x+grain*4.)*cos(30.*p.z-grain*5.);
+    c=mix(vec3(.04,.30,.08),vec3(.58,.99,.04),smoothstep(-.35,.65,cells)+.24*edge);
+    c+=front*vec3(.68,.45,.06);
+  }else{
+    float strands=pow(.5+.5*sin(15.*angle+radius*18.+grain*4.-t*2.),7.);
+    c=mix(vec3(.06,.027,.10),vec3(.67,.28,.53),strands*.78+edge*.65);
+  }
+  a*=.78+.18*edge;
+}
 else if(kind>3.5){float wave=noise(vec3(v.x*span*.35,v.y*2.-t*1.5,t*.4));float rip=sin(v.y*24.+wave*7.-t*3.);c=mix(vec3(.03,.45,.48),vec3(.61,1.,.91),.48+.28*rip+.20*wave);a*=1.-smoothstep(.89+.08*wave,1.,v.y);}
 else if(kind>2.5){float wave=noise(vec3(v.x*span*.75,v.y*3.-t*3.,t*.55));float top=.64+.36*wave;a*=1.-smoothstep(top-.12,top,v.y);c=mix(vec3(.98,.14,.025),vec3(1.,.85,.22),clamp(1.-v.y+.23*sin(v.x*18.-t*4.)+.35*wave,0.,1.));}
 else{float band=pow(abs(sin(v.y*36.+t*4.)),8.);a*=.14+band*.44;c*=1.6;}
@@ -60,7 +75,7 @@ export function deviceMesh(type, color, w, h, d) {
     lane = type === 'lane' || type === 'blaze' || type === 'tide',
     pulse = ['sonar', 'dronePulse', 'pulse'].includes(type);
   const mat =
-    smoke || lane || pulse
+    type === 'mosh' || type === 'seize' ? surface(color,type === 'mosh' ? 5 : 6) : smoke || lane || pulse
       ? surface(color, type === 'tide' ? 4 : type === 'blaze' ? 3 : lane ? 1 : pulse ? 2 : 0)
       : new T.MeshStandardMaterial({
           color,
@@ -84,7 +99,7 @@ export function deviceMesh(type, color, w, h, d) {
             'zoneEmitter',
           ].includes(type)
         ? crystal
-        : ['fire', 'slow', 'orbital', 'stimField'].includes(type)
+        : ['fire', 'slow', 'orbital', 'stimField', 'mosh', 'seize'].includes(type)
           ? flat
           : block,
     mat,
@@ -149,6 +164,14 @@ export function drawDevice(d, now) {
   u.t.value = now;
   const age = now - d.born;
   const fade = Math.min(1, Math.max(0, (d.end - now) * 4));
+  if (d.type==='mosh' || d.type==='seize') {
+    const diameter=2*fieldReach(d,now);
+    const burst=Math.max(0,Math.min(1,(now-d.start)/.08));
+    m.scale.set(diameter,.045+(d.type==='mosh'?burst*.33:0),diameter);
+    u.front.value=burst;
+    u.opacity.value=Math.min(1,(d.end-now)*8);
+    return;
+  }
   if (['lane', 'blaze', 'tide'].includes(d.type)) {
     if (!d.path) return;
     if (!m.userData.owned || m.userData.length !== d.path.length) {

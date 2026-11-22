@@ -376,6 +376,7 @@ input:not([type='range']):not([type='checkbox']) {
   position: fixed;
   inset: 0;
   background: #f7ffffef;
+  opacity: var(--flash-opacity, 1);
   pointer-events: none;
   z-index: 5;
 }

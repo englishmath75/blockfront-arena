@@ -13,6 +13,9 @@ import times from './ability-times.json' with { type: 'json' };
 import demos from './ability-demos.json' with { type: 'json' };
 import abilitySounds from './ability-sfx.json' with { type: 'json' };
 import { motionAction, sampleMotion } from './weapon-motion.js';
+import { tickGroundField } from './ground-fields.js';
+import chromas from './motion-chromas.json' with { type: 'json' };
+import joints from './finger-motion.json' with { type: 'json' };
 import { castField, tickField } from './agent-fields.js';
 import { createZone, tickZone, shieldHit } from './ability-zones.js';
 import { Ray, Vector3 } from 'three';
@@ -89,6 +92,65 @@ function fieldScenario() {
   ctx.add = ctx.add.bind(ctx);
   return { caster, target, ctx, devices };
 }
+
+test('Seize captures once after windup and respects cover and late entry', () => {
+  const {caster,target,ctx}=fieldScenario();
+  Object.assign(target,{decayLost:0,deafUntil:0});
+  const late={...target,id:3,x:9}, covered={...target,id:4};
+  ctx.players.push(late,covered);
+  ctx.visible=(_,p)=>p!==covered;
+  const field={type:'seize',born:0,start:.7,end:5.2,x:0,y:0,z:0,radius:6.58};
+  ctx.time=.6;
+  tickGroundField(field,caster,ctx);
+  assert.equal(target.hp,25);
+  assert.equal(target.tether,undefined);
+  ctx.time=.7;
+  tickGroundField(field,caster,ctx);
+  assert.equal(target.tether.until,5.2);
+  assert.equal(target.deafUntil,5.2);
+  late.x=0;
+  ctx.time=1;
+  tickGroundField(field,caster,ctx);
+  assert.equal(late.hp,100);
+  assert.equal(covered.hp,100);
+});
+
+test('Mosh damage accumulates on the impact clock with three different inner and outer hits', () => {
+  const {caster,target,ctx}=fieldScenario();
+  caster.x=15;
+  target.z=0;
+  const rim={...target,x:6}, outside={...target,x:6.3};
+  ctx.visible=()=>true;
+  ctx.players.push(rim,outside);
+  const field={type:'mosh',born:0,start:3,x:0,y:0,z:0,radius:6.2};
+  ctx.time=2.99;
+  tickGroundField(field,caster,ctx);
+  assert.equal(target.hp,70);
+  const before=rim.hp;
+  for (const t of [3,3.1,3.2,3.21]) {ctx.time=t;tickGroundField(field,caster,ctx);}
+  assert.equal(target.hp,70-150);
+  assert.equal(rim.hp,before-75);
+  assert.equal(outside.hp,100);
+});
+
+test('captured chromas and finger observations belong to playable motions', () => {
+  const variants=new Set(chromas);
+  for (const skin of Object.values(skins).flat()) {
+    for (const v of skin.variants ?? []) if (variants.delete(v.id)) {
+      assert(Object.values(motions[skin.id] ?? {}).some(a=>a.tile) ||
+        ['reload','inspect'].some(action=>recordedAction(skinProfile(skin,{variant:v.id}),action)));
+      assert(fs.existsSync(new URL('./public/motion/chromas/'+v.id+'.png',import.meta.url)));
+    }
+  }
+  assert.equal(variants.size,0);
+  for (const [id,actions] of Object.entries(joints)) for (const [name,frames] of Object.entries(actions)) {
+    assert(motions[id][name]);
+    for (const frame of frames) for (const hand of Object.values(frame)) {
+      assert.equal(hand.length,15);
+      assert(hand.every(axis=>Math.abs(Math.hypot(...axis)-100)<1));
+    }
+  }
+});
 
 test('Fault Line waits for windup and Lockdown detains through cover after its countdown', () => {
   const { caster, target, ctx, devices } = fieldScenario();

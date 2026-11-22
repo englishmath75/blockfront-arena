@@ -5,7 +5,7 @@ const zones = {
   fragment: { radius: 4, hue: '#ad84ff', delay: 0.5, count: 4, gap: 1 },
   mpulse: { radius: 5.5, hue: '#b091ff', delay: 1, count: 3, gap: 1 },
   storm: { radius: 6, hue: '#55dded', delay: 0.6 },
-  saturate: { radius: 6, hue: '#ffe793', delay: 0.1 },
+  saturate: { radius: 6, hue: '#ffe793', delay: 0.6 },
   collapse: { radius: 6, hue: '#69bee0', delay: 0.15 },
   suspension: { radius: 7, hue: '#5bd2f1', delay: 0.1 },
   knife: { radius: 15, hue: '#ad85ff', delay: 1 },
@@ -77,7 +77,8 @@ export function tickZone(d, owner, ctx) {
     } else if (d.kind === 'storm') {
       o.tag = t + 2;
       o.nearsight = t + 2;
-    } else if (d.kind === 'nova' || d.kind === 'saturate') o.tag = t + (d.kind === 'nova' ? 2.5 : 3);
+    } else if (d.kind === 'nova') o.tag=t+2.5;
+    else if (d.kind==='saturate') o.hinderedUntil=t+timing[d.name]['hinder duration'];
     else if (d.kind === 'suspension') {
       o.vy = 4.2;
       o.suspendedUntil = t + 4;
