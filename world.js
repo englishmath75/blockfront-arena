@@ -2,6 +2,7 @@ import { triangleTerrain } from './triangle-terrain.js';
 import { terrainFeedback } from './terrain-feedback.js';
 import { visionDistance } from './field-effects.js';
 import { drawScenery } from './scenery.js';
+import {playerVisibility} from './player-visibility.js';
 import { staticView } from './static-view.js';
 import { buildTerrain } from './terrain.js';
 import { makeMechanisms, geometry, switchPos, cable, inside } from './mechanisms.js';
@@ -248,19 +249,6 @@ export function createWorld(canvas, data) {
   const updateTerrainFeedback = terrainFeedback(scene);
   const cachedView=software && scenery ? staticView(renderer,scene,camera,scenery,sky,updateTerrainFeedback.uniforms) : null;
   const dark = material('#263432');
-  const strap = material('#344c3d');
-  const trim = material('#99b78a');
-  const tool = new T.Group();
-  tool.add(mesh(dark, 0, 0, -0.075, 0.17, 0.15, 0.42));
-  tool.add(mesh(trim, 0, 0.074, -0.08, 0.153, 0.05, 0.36));
-  tool.add(mesh(dark, 0, 0.014, -0.35, 0.075, 0.075, 0.17));
-  tool.add(mesh(dark, 0, -0.115, -0.09, 0.11, 0.15, 0.1));
-  tool.add(mesh(strap, 0, -0.11, 0.075, 0.1, 0.18, 0.11));
-  tool.add(mesh(strap, 0, 0.09, -0.21, 0.045, 0.045, 0.045));
-  const flash = mesh(solid('#ffda86'), 0, 0.01, -0.46, 0.12, 0.12, 0.18);
-  flash.visible = false;
-  tool.add(flash);
-  camera.add(tool);
   const core = new T.Group();
   core.add(mesh(dark, 0, 0.13, 0, 0.54, 0.26, 0.54));
   core.add(mesh(solid('#ffdf79'), 0, 0.32, 0, 0.33, 0.28, 0.33));
@@ -274,6 +262,8 @@ export function createWorld(canvas, data) {
       head = new T.Mesh(new T.SphereGeometry(0.175, 16, 12), material(target ? '#9aa7af' : '#c9987e'));
     torso.position.y = 0.93;
     head.position.y = 1.58;
+    const update=g.updateMatrixWorld;
+    g.updateMatrixWorld=function(force){if(this.visible)update.call(this,force)};
     g.add(torso, head);
     const legs = [-0.125, 0.125].map((x) => {
       const o = new T.Mesh(new T.CapsuleGeometry(0.086, 0.46, 3, 10), dark);
@@ -481,6 +471,7 @@ export function createWorld(canvas, data) {
       }finally{target.dispose()}
     },
     fieldMaterials,
+    playersInView:playerVisibility(camera,structure,software),
     first,
     dispose,
     scene,
@@ -490,9 +481,6 @@ export function createWorld(canvas, data) {
       if(cachedView)cachedView.draw();
       else renderer.render(scene,camera);
     },
-    tool,
-    trim,
-    flash,
     core,
     avatar,
     trace,

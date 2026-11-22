@@ -1,4 +1,5 @@
 import * as T from 'three';
+import {stickPack} from './blast-pack.js';
 export const arrowNames = ['충격 화살', '정찰용 화살'];
 export const tabletNames = [
   '공중 연막',
@@ -162,6 +163,7 @@ export function flight(a, dt, now, world, devices, owner) {
     Object.assign(a,{vx:vel.x,vy:vel.y,vz:vel.z});
     return false;
   }
+  if(a.type==='satchel'){stickPack(a,norm,now);return false}
   if (a.type==='recon') a.surfaceNormal=norm.toArray();
   if (a.bounces > 0) {
     if (a.type === 'relay') a.impactPoint = { x: a.x, y: a.y, z: a.z };
@@ -185,13 +187,14 @@ export function flight(a, dt, now, world, devices, owner) {
     a.end = now + (a.type === 'flare' ? 0.5 : 0.8);
     return false;
   }
-  if (['paint', 'flash', 'curve', 'satchel', 'hawk'].includes(a.type)) {
+  if (['paint', 'flash', 'curve', 'hawk'].includes(a.type)) {
     a.stuck = true;
     return false;
   }
   return true;
 }
 export const projectileColor = {
+  satchel:'#ffac43',
   hawk: '#76e74e',
   shock: '#69bfff',
   recon: '#62edff',

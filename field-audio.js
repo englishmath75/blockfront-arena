@@ -1,4 +1,4 @@
-const clips = ['recon-ping', 'ice-break', 'ice-step-1', 'ice-step-2', 'ice-step-3'];
+const clips = ['recon-ping', 'ice-break', 'ice-step-1', 'ice-step-2', 'ice-step-3', 'pack-burst', 'pack-stick', 'rift-jump'];
 const contexts = new WeakMap();
 
 export function prepareFieldAudio(ctx) {

@@ -15,7 +15,6 @@ import { recordedEffect, playHandling } from './skin-performance.js';
 import timing from './ability-times.json' with { type: 'json' };
 import { deviceMesh, drawDevice, lanePaths, warmFieldMaterials } from './field-effects.js';
 import { modelKey, inspectLength, attachProp, previewWeapon, warmLoadout } from './actor-models.js';
-import { heldSkill } from './held-skill.js';
 import {
   deviceKind,
   reusable,
@@ -42,7 +41,6 @@ import {
   prepareSkin,
   playSkinEvent,
   stopAnimationAudio,
-  weaponAnimation,
   finisher,
   palettes,
 } from './skin-performance.js';
@@ -208,6 +206,14 @@ function cast(params = {}) {
 let queuedActions = [],
   heldRemotes = new Map(),
   roomPending = false;
+import {collectionMotion} from './collection-motion.js';
+let closeCollectionMotion;
+import {customOptions,customControls,fly} from './custom-game.js';
+import {dimensionalEffect} from './dimensional-effects.js';
+import {blastImpact} from './blast-pack.js';
+import {stepHeight} from './walk-surface.js';
+import {peerMotion} from './peer-motion.js';
+const peers=peerMotion();
 const isGuest = () => mode === 'match' && room && !room.host;
 function dispatch(kind, value) {
   if (!isGuest()) return false;
@@ -216,6 +222,7 @@ function dispatch(kind, value) {
   return true;
 }
 const practice = () => mode === 'range' || mode === 'tour';
+const isCustom = () => mode==='match' && room?.room?.mode==='사용자 설정 게임' && room.room.started;
 const dm = () => !practice() && playlist === '데스매치';
 const rush = () => !practice() && playlist === '스파이크 돌격';
 const rated = () => !practice() && playlist === '경쟁전';
@@ -411,6 +418,7 @@ function setPhase(phase, seconds) {
 }
 function respawn(p, slot = p.i) {
   Object.assign(p, {
+    ghost:false,ghostOrigin:null,blastMotion:null,gateJump:false,destination:null,
     strike: null,
     lastCast: null,
     jammedUntil: 0,
@@ -586,6 +594,7 @@ function startRound() {
   setPhase(dm() || practice() ? 'fight' : 'buy', dm() ? 540 : practice() ? Infinity : TIMES.buy);
 }
 function buildMatch(roster) {
+  peers.reset();
   const members = roster ?? [
     { id: 'local', agent: agentId, team: 'blue' },
     ...Array.from({ length: mode === 'range' ? 5 : 0 }, (_, i) => ({
@@ -600,6 +609,7 @@ function buildMatch(roster) {
   match = {
     players,
     player: players.find((p) => p.local),
+    cheats:{enabled:false},
     awaitingLoad: Boolean(roster),
     attack: 'blue',
     round: 0,
@@ -697,6 +707,8 @@ function floorAt(x, z, limit, radius = 0.28) {
 }
 const grounded = (p) => p.ride == null && Math.abs(p.y - floorAt(p.x, p.z, p.y + 0.04)) < 0.055;
 function move(p, dx, dz) {
+  const steps=Math.ceil(Math.max(Math.abs(dx),Math.abs(dz))/.16);
+  if(steps>1){for(let i=0;i<steps;i++)move(p,dx/steps,dz/steps);return}
   for (const [axis, delta, vel] of [
     ['x', dx, 'vx'],
     ['z', dz, 'vz'],
@@ -704,9 +716,7 @@ function move(p, dx, dz) {
     if (!delta) continue;
     const x = p.x + (axis === 'x' ? delta : 0),
       z = p.z + (axis === 'z' ? delta : 0);
-    const onFloor = grounded(p),
-      next = onFloor ? floorAt(x, z, p.y + 0.33) : -Infinity;
-    const feet = Math.max(p.y, next);
+    const feet=stepHeight(world,x,z,p.y,grounded(p),p.height,floorAt,x-p.x,z-p.z);
     if (!world.intersects(x, z, feet, 0.28, match.devices, p.height + 0.12)) {
       p[axis] += delta;
       p.y = feet;
@@ -738,11 +748,12 @@ function footSound(p,ice) {
   p.stepSurface=ice?'ice':'';
   if(ice)fieldSound('ice-step',p);else sound('step',p.local?undefined:p);
 }
+const fieldCues={ice:'ice-break',reconWave:'recon-ping',satchelBurst:'pack-burst',riftBurst:'rift-jump'};
 function presentFieldCue(d) {
-  if (d.type!=='ice' && d.type!=='reconWave') return;
-  if (d.mesh.userData.heard || audio?.state!=='running') return;
+  const event=fieldCues[d.type];
+  if (!event || d.mesh.userData.heard || audio?.state!=='running') return;
   d.mesh.userData.heard=true;
-  if (now-d.born<.55) fieldSound(d.type==='ice' ? 'ice-break' : 'recon-ping',d);
+  if (now-d.born<.55) fieldSound(event,d);
 }
 function spatialSteps(p, dt) {
   const speed = Math.hypot(p.vx, p.vz);
@@ -759,9 +770,10 @@ function spatialSteps(p, dt) {
   }
 }
 const localKeys = keys;
-function walk(dt, p = match.player, keys = localKeys) {
+function walk(dt, p = match.player, keys = localKeys, prediction=false) {
+  if(p.ghost && isCustom() && match.cheats.enabled){fly(p,keys,dt);return}
   if (p.down) return;
-  if (match.core.actor === p) {
+  if (match.core.actor?.id === p.id) {
     p.vx = p.vz = 0;
     return;
   }
@@ -822,6 +834,10 @@ function walk(dt, p = match.player, keys = localKeys) {
       : keys.has('ShiftLeft') || keys.has('ShiftRight')
         ? 'walk'
         : 'run';
+  if(!x && !z && !p.vx && !p.vz && !p.vy && !keys.has('Space') && !p.blastMotion && !(p.slideUntil>now) &&
+      p.mode==='run' && Math.abs(p.height-1.53)<.001 && grounded(p)){
+    p.jumpHeld=false;p.foot=0;return;
+  }
   const length = Math.hypot(x, z) || 1;
   const dx = (x * Math.cos(p.yaw) - z * Math.sin(p.yaw)) / length;
   const dz = (-x * Math.sin(p.yaw) - z * Math.cos(p.yaw)) / length;
@@ -846,10 +862,15 @@ function walk(dt, p = match.player, keys = localKeys) {
     p.vx = p.vz = 0;
   }
   const attackStart = isAttack(p);
-  const futureZ = p.z + p.vz * dt;
+  let blastX=0,blastZ=0;
+  if(p.blastMotion){
+    if(now>=p.blastMotion.until || (p.vy<=0 && grounded(p)))p.blastMotion=null;
+    else{const strength=Math.min(1,(p.blastMotion.until-now)*3);blastX=p.blastMotion.vx*strength;blastZ=p.blastMotion.vz*strength}
+  }
+  const futureZ = p.z + (p.vz+blastZ) * dt;
   const spawn = sidePosition(attackStart, p.i);
   const inSpawn = Math.hypot(p.x - spawn[0], futureZ - spawn[1]) < 9;
-  move(p, p.vx * dt, match.phase === 'buy' && !inSpawn ? 0 : p.vz * dt);
+  move(p, (p.vx+blastX)*dt, match.phase === 'buy' && !inSpawn ? 0 : (p.vz+blastZ)*dt);
   if (match.phase === 'buy' && !inSpawn) p.vz = 0;
   const onFloor = grounded(p);
   if (onFloor) {
@@ -859,7 +880,7 @@ function walk(dt, p = match.player, keys = localKeys) {
   if (onFloor && keys.has('Space') && !p.jumpHeld && p.mode !== 'crouch') {
     const ice=p.iceUntil>now;
     p.vy=ice||p.slowUntil>now?3.96:5.6;
-    if(ice){p.stepCount++;footSound(p,true);}
+    if(ice && !prediction){p.stepCount++;footSound(p,true);}
   }
   p.jumpHeld = keys.has('Space');
   if (!onFloor || p.vy > 0) {
@@ -877,14 +898,14 @@ function walk(dt, p = match.player, keys = localKeys) {
       if (p.y === ground) p.vy = 0;
     }
     if (p.y < -18) {
-      environmentDeath(p);
+      if(!prediction)environmentDeath(p);
       return;
     }
   }
   const canStand = !world.intersects(p.x, p.z, p.y, 0.27, match.devices, 1.65);
   if (!canStand) p.mode = 'crouch';
   p.height += ((p.mode === 'crouch' ? 1.05 : 1.53) - p.height) * Math.min(1, dt * 16);
-  spatialSteps(p, dt);
+  if(!prediction)spatialSteps(p, dt);
 }
 function clearChannel() {
   match.core.actor = null;
@@ -984,6 +1005,7 @@ function eliminate(p, attacker, attack) {
   if (p.local) announce('탈락 · 좌클릭으로 관전 전환');
 }
 function hurt(p, amount, attacker, attack) {
+  if(p.ghost || attacker?.ghost)return;
   if (amount > 0 && p.pilot?.kind === '잠입 드론') p.pilot = null;
   if (p.downedKayo) {
     const core = match.devices.find((d) => d.id === p.downedKayo);
@@ -1091,7 +1113,7 @@ function shoot(p, alt = false, follow = false) {
     stats = weaponFor(p);
   if (
     !item ||
-    p.down ||
+    p.ghost || p.down ||
     p.reloading ||
     p.nextShot > now ||
     !active() ||
@@ -1204,7 +1226,7 @@ function shoot(p, alt = false, follow = false) {
       hit = null,
       zone = 'bodyDamage';
     for (const o of match.players) {
-      if (o === p || o.down || o.phaseUntil > now) continue;
+      if (o === p || o.ghost || o.down || o.phaseUntil > now) continue;
       const top = o.height + 0.13;
       for (const [part, base, h, w] of [
         ['headDamage', top - 0.38, 0.38, 0.45],
@@ -1495,9 +1517,21 @@ function fieldContext() {
 function owned(p, name) {
   return match.devices.find((d) => d.owner === p.id && d.kind === deviceKind(name) && d.end > now);
 }
-function deviceAction(p, d) {
+function deviceAction(p, d, interact=false) {
   if (!d || d.owner !== p.id || d.end <= now) return;
-  if (d.kind === 'anchor' || d.kind === 'passage' || d.kind === 'gatecrash' || d.kind === 'beacon') {
+  if(d.kind==='gatecrash'){
+    if(d.lock>now)return;
+    const fake=interact;
+    const burst=addDevice('riftBurst',d.x,d.z,p.team,1.2,.8,.8,1.4,'#3e74ff',p,d.y);
+    burst.kind='riftBurst';
+    if(fake){const mark=addDevice('riftMark',d.x,d.z,p.team,30,.65,.65,.04,'#344dff',p,d.y);mark.kind='riftMark'}
+    else{
+      p.destination=world.structure.spawn(d.x,d.z,d.y);p.teleportAt=now+.5;
+      p.gateJump=true;p.nextShot=Math.max(p.nextShot,now+1.2);
+    }
+    d.end=now;return;
+  }
+  if (d.kind === 'anchor' || d.kind === 'passage' || d.kind === 'beacon') {
     if (d.kind === 'anchor' && range(p, d) > 18) return;
     const at = world.structure.spawn(d.x, d.z, d.y);
     Object.assign(p, at, { vy: 0, vx: 0, vz: 0 });
@@ -1700,6 +1734,7 @@ function ability(i, p = match.player, params = {}) {
     }
     if (['무시', '차원 표류'].includes(slotName) && p.phaseUntil > now) {
       p.phaseUntil = now;
+      if(slotName==='차원 표류')p.nextShot=Math.max(p.nextShot,now+(timing[slotName]['unequip/return time']??.8));
       return;
     }
     if (slotName === '광속' && p.lightRush?.extra && now < p.lightRush.start + 1.45) {
@@ -1868,6 +1903,7 @@ function ability(i, p = match.player, params = {}) {
     p.stimUntil = now + 3600;
   } else if (name === '차원 표류') {
     p.phaseUntil = now + (stat.duration ?? 10);
+    p.driftEntered=now;
   } else if (name === '여제') {
     p.empress = true;
     p.stimUntil = now + 300;
@@ -2095,7 +2131,7 @@ function ability(i, p = match.player, params = {}) {
   } else if (deviceKind(name)) {
     const kind = deviceKind(name),
       self = kind === 'beacon',
-      pos = self ? p : kind==='camera' ? line.at(Math.max(0,distance-.06),vec(0,0,0)) : point;
+      pos = kind==='gatecrash' ? line.at(Math.min(1.3,Math.max(.1,distance-.24)),vec(0,0,0)) : self ? p : kind==='camera' ? line.at(Math.max(0,distance-.06),vec(0,0,0)) : point;
     if(kind==='camera' && (!mountInfo.normal || distance>=castReach || Math.abs(mountInfo.surfaceDistance-distance)>.12))return;
     const y = kind === 'camera' || kind === 'rose' ? pos.y : floorAt(pos.x, pos.z, pos.y + 0.4);
     if (!Number.isFinite(y)) return;
@@ -2114,7 +2150,7 @@ function ability(i, p = match.player, params = {}) {
     );
     Object.assign(d, { kind, hp: 45, on: false, angle: p.yaw });
     if(kind==='camera')d.normal=mountInfo.normal;
-    if (kind === 'gatecrash' && !params.alt) d.travel = true;
+    if(kind==='gatecrash')Object.assign(d,{travel:!params.alt,travelSpeed:8,hp:20,end:now+stat['tether duration']});
     if (kind === 'rose' && params.alt && distance < 18) {
       const behind = line.at(distance + 0.6, vec(0, 0, 0));
       Object.assign(d, { x: behind.x, z: behind.z, y: behind.y });
@@ -2217,9 +2253,10 @@ function ability(i, p = match.player, params = {}) {
         }
     cost = smoke || guided ? targets.length : 1;
   } else if (hasThrow(name)) {
-    const previous = match.arrows.find((a) => a.owner === p.id && a.type === 'satchel');
+    const previous = match.arrows.find((a) => a.owner === p.id && a.type === 'satchel' && a.end>now);
     if (name === '폭발 팩' && previous) {
       previous.end = now;
+      p.lastCast={name,alt:true,at:now,end:now+.22};
       return;
     }
     if (name === '연막 폭발') p.guiding = true;
@@ -2603,8 +2640,9 @@ function tickProjectiles(dt) {
         const dist = Math.hypot(o.x - a.x, o.y + o.height * 0.5 - a.y, o.z - a.z);
         if (o.down || dist > r || !hasSight(a, o, r + 1)) continue;
         if (a.type === 'satchel') {
-          o.vy = Math.max(4, 9 * (1 - dist / r));
-          if (o === p) continue;
+          const amount=blastImpact(a,o,now);
+          if(amount && hostile(p,o))hurt(o,amount,p);
+          continue;
         }
         hurt(o, Math.max(1, Math.round(damage * (1 - dist / r))), p);
       }
@@ -2624,12 +2662,16 @@ function tickProjectiles(dt) {
             gravity: 15,
           });
         }
-      place('pulse', 0.22, r * 1.3, 1.4, projectileColor[a.type] ?? '#ffc568', a.y - 0.55);
+      if(a.type==='satchel'){
+        const flash=place('satchelBurst',.42,2*r,.15,'#ff9b30',a.y);
+        flash.normal=a.surfaceNormal??[0,1,0];
+      }else place('pulse', 0.22, r * 1.3, 1.4, projectileColor[a.type] ?? '#ffc568', a.y - 0.55);
     }
     return false;
   });
   match.arrows.push(...children);
 }
+const worldUp=new T.Vector3(0,1,0),surfaceDirection=new T.Vector3();
 function drawProjectiles() {
   const visible = (world.projectiles ??= new Map());
   const ids = new Set();
@@ -2672,7 +2714,13 @@ function drawProjectiles() {
       visible.set(a.id, m);
     }
     m.position.set(a.x, a.y, a.z);
-    if (!a.stuck) m.lookAt(a.x + a.vx, a.y + a.vy, a.z + a.vz);
+    if(a.type==='satchel' && a.surfaceNormal){
+      if(!m.userData.stuck){
+        m.userData.stuck=true;
+        if (now-a.stuckAt<.45) fieldSound('pack-stick',a);
+        m.quaternion.setFromUnitVectors(worldUp,surfaceDirection.fromArray(a.surfaceNormal));
+      }
+    }else if (!a.stuck) m.lookAt(a.x + a.vx, a.y + a.vy, a.z + a.vz);
   }
   for (const p of match.players) {
     if (!p.pilot || p.down || p.pilot.kind==='스파이캠') continue;
@@ -2730,8 +2778,34 @@ function endGame(winner) {
   releaseControls();
   show('results');
 }
+function setGhost(p,on){
+  if(on){p.ghostOrigin={x:p.x,y:p.y,z:p.z};p.ghost=true;return}
+  const floor=floorAt(p.x,p.z,p.y+.34);
+  if(Number.isFinite(floor) && !world.intersects(p.x,p.z,floor,.28,match.devices,1.65))p.y=floor;
+  else if(p.ghostOrigin)Object.assign(p,p.ghostOrigin);
+  p.vx=p.vy=p.vz=0;p.ghost=false;p.ghostOrigin=null;
+}
+function customAction(p,option){
+  if(!isCustom() || !room.host)return;
+  const cheats=match.cheats;
+  if(option==='ghost'){if(cheats.enabled && !p.down)setGhost(p,!p.ghost);return}
+  if(!p.local)return;
+  if(option==='enabled'){
+    if(cheats.enabled)for(const player of match.players)if(player.ghost)setGhost(player,false);
+    match.cheats={enabled:!cheats.enabled};return;
+  }
+  if(!cheats.enabled)return;
+  if(customOptions.includes(option)){cheats[option]=!cheats[option];return}
+  if(option==='skip' && match.phase==='buy'){setPhase('fight',TIMES.fight);return}
+  if(option==='restart'){
+    match.round=0;match.score={blue:0,amber:0};match.winner='';match.attack='blue';
+    for(const o of match.players)Object.assign(o,{kills:0,deaths:0,shots:0,hits:0,credits:800,charges:[0,0,1,0],ult:0});
+  }
+  if(['round','restart','skip'].includes(option)){match.roundEpoch=(match.roundEpoch??0)+1;startRound()}
+}
 function applyAction(p, a) {
   if (!p || !a) return;
+  if(a.kind==='custom'){customAction(p,a.value);return}
   if (
     p.down &&
     !(p.agent === '클로브' && ['arm', 'ability'].includes(a.kind) && [2, 3].includes(a.value?.i ?? a.value))
@@ -2741,7 +2815,7 @@ function applyAction(p, a) {
     case 'interact':
       {
         const d = aimedDevice(p);
-        if (d) deviceAction(p, d);
+        if (d) deviceAction(p, d, true);
         else useMechanism(world.mechanisms, p);
       }
       break;
@@ -2823,13 +2897,22 @@ function step(dt) {
     if (isGuest() || !match.players.every(p => p.sceneReady)) return;
     match.awaitingLoad = false;
   }
-  now += dt;
+  now += dt*(isGuest()?peers.rate(now,performance.now()):1);
+  if(isCustom() && match.cheats.enabled && !isGuest()){
+    if(match.cheats.clock && ['buy','fight','objective'].includes(match.phase))match.end+=dt;
+    for(const player of match.players){
+      if(match.cheats.credits)player.credits=9000;
+      if(match.cheats.skills){player.charges=AGENTS[player.agent].economy.map((v,i)=>i===3?1:Math.max(1,v.max));player.ult=AGENTS[player.agent].economy[3].points;}
+      if(match.cheats.ammo)for(const item of Object.values(player.kit))if(item && !['melee','blades'].includes(item.id))Object.assign(item,ammoFor(item.id));
+    }
+  }
   world.setClock(now);
   world.clearEffects(now);
   if (match.phase === 'ended') return;
   if (match.trial && now >= match.trial.next) advanceTarget(false);
   if (isGuest()) {
     match.player.ads = ads;
+    if(!match.player.pilot)peers.advance(match.player,keys,dt,performance.now(),walk);
     return;
   }
   if (match.phase === 'buy' && !phaseTime()) setPhase('fight', TIMES.fight);
@@ -2939,7 +3022,9 @@ function step(dt) {
         (p.pilot.device && !match.devices.some((d) => d.id === p.pilot.device && d.end > now)))
     )
       releasePilot(p);
+    if(p.gateJump && (p.down||p.suppressed>now)){p.destination=null;p.gateJump=false}
     if (p.destination && p.teleportAt <= now) {
+      p.gateJump=false;
       Object.assign(p, p.destination, { vy: 0 });
       p.destination = null;
     }
@@ -3214,10 +3299,12 @@ function step(dt) {
       const speed = d.travelSpeed ?? (d.type === 'decoy' ? 5.4 : 3);
       const x = d.x - Math.sin(d.angle) * dt * speed,
         z = d.z - Math.cos(d.angle) * dt * speed;
-      if (world.structure.blocked(x, z, d.y + 0.1, 0.1, 0.22)) d.travel = false;
+      const floor=d.kind==='gatecrash'?floorAt(x,z,d.y+.32):d.y;
+      if (!Number.isFinite(floor) || world.structure.blocked(x, z, floor + 0.1, 0.1, 0.22)) d.travel = false;
       else {
         d.x = x;
         d.z = z;
+        d.y=floor;
         d.mesh.position.set(x, d.y + d.h / 2, z);
       }
     }
@@ -3372,15 +3459,16 @@ function drawWorld(realTime) {
     world.finishFx = finisher(world.scene, match.endFx.family, match.endFx, match.endFx.at);
   }
   if (world.finishFx && !world.finishFx.update(now)) world.finishFx = null;
-  const { camera, tool, trim, flash, core } = world;
+  const { camera, core } = world;
   if (!match) {
     const a = realTime * 0.00014;
     camera.position.set(42 * Math.cos(a), 48, 42 * Math.sin(a));
     camera.lookAt(0, 0, 0);
     camera.fov = 57;
-    tool.visible = core.visible = false;
+    core.visible = false;
   } else {
     for (const d of match.devices) {
+      if(dimensionalEffect(d,now,match.player))continue;
       drawDevice(d, now);
       if (d.type === 'recon' && d.normal) {
         const mesh = d.mesh;
@@ -3437,7 +3525,15 @@ function drawWorld(realTime) {
           mesh.userData.requested = true;
           if(d.kind==='wingman'){
             mesh.scale.setScalar(1);attachProp(mesh,'wingman',.78,true);
-          }else attachProp(mesh,fieldProp(d.kind),1.5);
+          }else{
+            const heightOrSpan={'boom-bot':.58,dizzy:.62,turret:.92,alarmbot:.36,trademark:.37,'sonic-sensor':.32,lockdown:1.12};
+            mesh.scale.setScalar(1);const size=heightOrSpan[d.kind]??.48;
+            mesh.userData.propHeight=size;mesh.material.visible=false;attachProp(mesh,fieldProp(d.kind),size,true);
+          }
+        }
+        if(mesh.userData.propHeight){
+          mesh.position.y=d.y+mesh.userData.propHeight*.43;
+          mesh.userData.animateProp?.(d.chasing?'_Run':'_Idle',now-d.born);
         }
         if(d.kind==='wingman'){
           mesh.position.y=d.y+.39;
@@ -3466,22 +3562,18 @@ function drawWorld(realTime) {
         : shadow
           ? 'brightness(.64)'
           : '';
+    hud.classList.toggle('dimensional-drift',watch.agent==='요루' && watch.phaseUntil>now);
     const speed = Math.hypot(watch.vx, watch.vz);
+    const movingView=isGuest()?(watch===self?peers.view():peers.other(watch,realTime)):null;
     camera.position.set(
-      watch.x,
-      watch.y + watch.height + (unlocked || screen === 'game' ? (0.013 * Math.sin(now * 12) * speed) / 6 : 0),
-      watch.z,
+      movingView?.x??watch.x,
+      (movingView?.y??watch.y) + (movingView?.height??watch.height) + (unlocked || screen === 'game' ? (0.013 * Math.sin(now * 12) * speed) / 6 : 0),
+      movingView?.z??watch.z,
     );
-    if (watch.pilot) camera.position.set(watch.pilot.x, watch.pilot.y, watch.pilot.z);
+    const piloting=watch.pilot && !(watch.pilot.ready>now);
+    if (piloting) camera.position.set(watch.pilot.x, watch.pilot.y, watch.pilot.z);
     camera.rotation.set(watch.pitch, watch.yaw, 0, 'YXZ');
     camera.fov = 72;
-    tool.visible = !watch.pilot && !watch.down && armedSkill === null;
-    world.showSkill ??= heldSkill(camera);
-    world.showSkill(
-      watch === self && !watch.down && !watch.pilot ? armedName() : '',
-      chargeStart === null ? 0 : Math.min(1, (performance.now() - chargeStart) / 1000),
-      now,
-    );
     if (armedName() === '장벽 구슬') {
       const r = new T.Ray(vec(watch.x, watch.y + watch.height, watch.z), aim(watch.yaw, watch.pitch)),
         t = Math.min(8, world.mapHit(r, 18, match.devices));
@@ -3496,12 +3588,6 @@ function drawWorld(realTime) {
       world.wallPreview.position.set(q.x, floor + 1.35, q.z);
       world.wallPreview.rotation.y = wallAngle;
     } else if (world.wallPreview) world.wallPreview.visible = false;
-    tool.position.set(
-      0.29,
-      -0.234 - (watch.reloading ? 0.13 : 0),
-      -0.57 + Math.max(0, 0.1 - (now - watch.shot)) * 0.4,
-    );
-    tool.scale.setScalar(weaponFor(watch).scale);
     const gun = heldWeapon(watch).id;
     if (audio && world.baseGun !== gun) {
       world.baseGun = gun;
@@ -3514,35 +3600,25 @@ function drawWorld(realTime) {
       world.skinAudio = audio;
       prepareSkin(skin,audio);
     }
-    world.animation ??= weaponAnimation(world);
-    world.animation.draw(
-      skin,
-      watch.reloading ? Math.max(0, 1 - (watch.reloading - now) / (watch.reloadDuration || weaponFor(watch).reload)) : 0,
-      watch.inspectUntil > now ? 1 - (watch.inspectUntil - now) / inspectLength(gun, skin) : 0,
-      now,
-      now - watch.shot,
-    );
     if (skin?.topFragOn)
       watch.championAura = watch.kills > 0 && match.players.every((o) => o.kills <= watch.kills);
     else watch.championAura = false;
     const liveSkill =
-      (watch === self ? armedName() : '') ||
+      (watch === self ? armedName() : '') || (watch.agent==='요루' && watch.phaseUntil>now?'차원 표류':'') ||
       (watch.lastCast?.end > now &&
       !['칼날 폭풍', '역작', '헤드헌터', '순풍', '고속 기어', '오버드라이브'].includes(watch.lastCast.name)
         ? watch.lastCast.name
         : '');
-    const firstReady = world.first.update(
+    world.first.update(
       watch,
       gun,
       skin,
       now,
-      !watch.pilot && !watch.down && !(liveSkill === '어둠의 장막' && alternateView),
+      !piloting && !watch.down && !(liveSkill === '어둠의 장막' && alternateView),
       watch.reloadDuration || weaponFor(watch).reload,
       liveSkill,
       watch===self && chargeStart!==null ? Math.min(1,(performance.now()-chargeStart)/1000) : 0,
     );
-    if (firstReady || (liveSkill === '어둠의 장막' && alternateView)) world.showSkill('', 0, now);
-    if (firstReady) tool.visible = false;
     if (watch === self && distanceSmokes.includes(armedName())) {
       const target = distanceTarget(world, watch, watch.yaw, watch.pitch, smokeRange);
       if (target) {
@@ -3568,33 +3644,32 @@ function drawWorld(realTime) {
     } else if (world.smokeMarker) world.smokeMarker.visible = false;
     const optical=watch.ads && !watch.pilot && !liveSkill && !watch.down && !watch.reloading && weaponFor(watch).ads;
     const scoped=optical && scopeLevels[gun];
-    if(scoped){world.first.visible=false;tool.visible=false;flash.visible=false}
+    if(scoped)world.first.visible=false;
     drawScope(get('scope'),optical?gun:null,watch.zoomStep??1,
       !reticleProfile && grounded(watch) && Math.hypot(watch.vx,watch.vz)<.45 && watch.bloom<.006,skin);
     if (optical) {
       camera.fov = zoomFov(72,scoped?.[Math.max(0,(watch.zoomStep||1)-1)]??optical.zoomMultiplier);
-      tool.position.x = 0.08;
     }
-    flash.visible =
-      !['melee', 'blades'].includes(gun) && !flash.userData.filmed && watch === self && now < match.flash;
+    world.playersInView.prepare();
     for (const o of match.players) {
       const { g, legs } = o.model;
-      if (o !== watch || watch.pilot)
-        o.model.animate?.(
-          now,
-          Math.min(1, Math.hypot(o.vx, o.vz) / 6),
-          o.revealTeam === self.team && o.revealEnd > now,
-          modelKey(heldWeapon(o)?.id, currentSkin(o)),
-          currentSkin(o),
-          o.strike,
-          o.pitch,
-        );
-      g.visible =
-        (o !== watch || !!watch.pilot) &&
-        alive(o) &&
-        !(o.agent === '요루' && o.phaseUntil > now && hostile(watch, o) && range(watch, o) > 15);
-      g.position.set(o.x, o.y, o.z);
-      g.rotation.y = o.yaw;
+      const loc=isGuest()?peers.other(o,realTime):o;
+      const revealed=o.revealTeam===self.team && o.revealEnd>now;
+      g.visible=(o!==watch || !!watch.pilot) && alive(o) && !o.ghost && world.playersInView.visible(o,loc,now,revealed)
+        && !(o.agent==='요루' && o.phaseUntil>now && hostile(watch,o) && range(watch,o)>15);
+      if(!g.visible)continue;
+      g.position.set(loc.x,loc.y,loc.z);
+      g.rotation.y=loc.yaw;
+      o.model.animate?.(
+        now,
+        Math.min(1, Math.hypot(o.vx, o.vz) / 6),
+        revealed,
+        modelKey(heldWeapon(o)?.id, currentSkin(o)),
+        currentSkin(o),
+        o.strike,
+        o.pitch,
+      );
+
       g.scale.y = o.mode === 'crouch' ? 0.74 : 1;
       const stride = Math.min(1, Math.hypot(o.vx, o.vz) / 6);
       legs[0].position.z = Math.sin(now * 12) * 0.19 * stride;
@@ -3977,7 +4052,7 @@ const heading = (eyebrow, title) => '<span class="eyebrow">' + eyebrow + '</span
 let selectDestination = 'range',
   settingsReturn = 'home';
 function show(target) {
-  if(screen==='collection' && target!=='collection')previewWeapon(null);
+  if(screen==='collection'){closeCollectionMotion?.();closeCollectionMotion=null;stopAnimationAudio();if(target!=='collection')previewWeapon(null)}
   screen = target;
   hud.hidden = target !== 'game';
   menu.dataset.screen = target;
@@ -4072,8 +4147,8 @@ function show(target) {
       action('home', '로비로') +
       '</div><small>잠금 없이 플레이할 때는 방향키 또는 우클릭 드래그로 조준합니다.</small>';
   if (target === 'shop') content = armory(match.player, selectedGun, practice() || dm());
-  if (target === 'collection') content = collection(collectionGun, equipped, skinOptions);
-  if (target === 'settings') content = settingsForm(settings);
+  if (target === 'collection') content = collection(collectionGun, equipped, skinOptions,agentId);
+  if (target === 'settings') content = settingsForm(settings)+(isCustom() && match?customControls(room.host,match.cheats,match.player.ghost):'');
   if (target === 'results')
     content =
       heading('경기 종료', escape(match.winner) + ' 승리') +
@@ -4209,6 +4284,10 @@ function roomEvent(type, data) {
       i = data.input;
     if (!p || p.local || !Array.isArray(i?.keys) || !Number.isFinite(i.yaw) || !Number.isFinite(i.pitch))
       return;
+    if(Number.isFinite(i.stamp)){
+      if(i.stamp<=(p.motionStamp??-1))return;
+      p.motionStamp=i.stamp;p.motionSeen=now;
+    }
     heldRemotes.set(p.id, {
       keys: i.keys.slice(0, 24),
       yaw: i.yaw,
@@ -4322,7 +4401,7 @@ const stateKeys =
     ' ',
   );
 stateKeys.push(
-  'lastInputAction','ads','zoomStep','drawDuration',
+  'driftEntered','blastMotion','motionStamp','motionSeen','jumpHeld','ghost','lastInputAction','ads','zoomStep','drawDuration',
   'scannedUntil','iceUntil','stepSurface','tether','tag','hinderedUntil','slowUntil','hasteUntil','reloadDuration',
   'lastCast',
   'jammedUntil',
@@ -4348,6 +4427,7 @@ function snapshot() {
   const { carrier, actor, ...core } = match.core;
   return {
     revision: ++revision,
+    roundEpoch:match.roundEpoch??0,cheats:isCustom()?match.cheats:undefined,
     awaitingLoad: match.awaitingLoad,
     now,
     round: match.round,
@@ -4430,6 +4510,7 @@ function receiveState(s) {
           broken: !!v.broken,
         });
     });
+  const firstSnapshot=lastRevision<0,stamp=performance.now();
   lastRevision = s.revision;
   match.awaitingLoad = s.awaitingLoad === true;
   match.arrows = Array.isArray(s.arrows)
@@ -4442,12 +4523,15 @@ function receiveState(s) {
       ? s.endFx
       : null;
   const prev = match.phase,
-    newRound = match.round !== s.round;
-  now = s.now;
+    newRound = match.round !== s.round || (match.roundEpoch??0)!==(s.roundEpoch??0);
+  match.roundEpoch=s.roundEpoch??0;
+  if(isCustom() && s.cheats){match.cheats=s.cheats;}
+  now = peers.clock(s.now,stamp,firstSnapshot||newRound,now);
   for (const k of ['round', 'score', 'attack', 'phase', 'end', 'result', 'winner', 'feed']) match[k] = s[k];
   for (const entry of s.players) {
     const p = match.players.find((o) => o.id === entry.id);
     if (!p) continue;
+    const movedAbruptly=firstSnapshot||newRound||p.down!==entry.down||!!p.ghost!==!!entry.ghost||Math.hypot(p.x-entry.x,p.y-entry.y,p.z-entry.z)>3;
     const yaw = p.yaw,
       pitch = p.pitch,
       shot = p.shot,
@@ -4466,6 +4550,7 @@ function receiveState(s) {
       p.yaw = yaw;
       p.pitch = pitch;
     }
+    if(p.local)peers.reconcile(p,s.now,stamp,movedAbruptly,walk);else peers.record(p,stamp,movedAbruptly);
     if (entry.shot > 0 && entry.shot !== shot) {
       if (p.strike?.at === entry.shot) presentStrike(p);
       else if (p.beamUntil > now && p.local) match.flash = 0;
@@ -4505,6 +4590,12 @@ function receiveState(s) {
     presentFieldCue(copy);
     copy.mesh.position.set(copy.x, copy.y + copy.h / 2, copy.z);
   }
+  if(screen==='settings' && isCustom()){
+    const old=menu.querySelector('.custom-game-controls'),next=customControls(false,match.cheats,match.player.ghost);
+    if(!old && next)menu.querySelector('.panel').insertAdjacentHTML('beforeend',next);
+    else if(old && !next)old.remove();
+    else if(old && old.querySelector('[data-custom="ghost"]')?.getAttribute('aria-pressed')!==String(!!match.player.ghost))old.outerHTML=next;
+  }
   if (prev !== match.phase && match.phase === 'ended') {
     releaseControls();
     show('results');
@@ -4517,14 +4608,15 @@ function receiveState(s) {
 }
 let lastBalance = -1;
 function networkFrame(time) {
-  if (!room?.room?.started || !match || room.posting || time - (room.netAt??0) < 50) return;
+  if (!room?.room?.started || !match || (room.posting??0)>=3 || time - (room.netAt??0) < 50) return;
   room.netAt = time;
-  room.posting = true;
+  room.posting=(room.posting??0)+1;
   const client = room;
   const payload = client.host
     ? { state: snapshot() }
     : {
         input: {
+          stamp:time,
           sceneReady: match.player.sceneReady === true,
           zoomStep,
           keys: [...keys],
@@ -4548,7 +4640,7 @@ function networkFrame(time) {
         roomEvent('closed','서버 연결이 종료되었습니다.');
     })
     .finally(() => {
-      client.posting = false;
+      client.posting--;
     });
 }
 function closeShop() {
@@ -4563,6 +4655,23 @@ menu.addEventListener('click', async (event) => {
   const b = event.target.closest('button');
   if (!b || b.disabled) return;
   const d = b.dataset;
+  if(d.preview && screen==='collection'){
+    closeCollectionMotion?.();closeCollectionMotion=null;stopAnimationAudio();
+    if(d.preview==='model'){show('collection');return}
+    previewWeapon(null);
+    const id=equipped[collectionGun],skin=skinProfile(skinCatalog[collectionGun]?.find(x=>x.id===id),skinOptions[id]);
+    const area=get('weapon-turntable');soundOn();prepareSkin(skin,audio);
+    closeCollectionMotion=collectionMotion(area,collectionGun,skin,agentId,d.preview,duration=>{
+      if(!audio || !settings.volume)return;
+      if(!playSkinEvent(skin,d.preview,duration,settings.volume*.82,audio,collectionGun)){
+        if(d.preview==='reload')playBase(audio,collectionGun,'reload',settings.volume*.82,0);
+        else playHandling(audio,d.preview,settings.volume*.82);
+      }
+    });
+    for(const btn of menu.querySelectorAll('[data-preview]'))btn.setAttribute('aria-pressed',String(btn===b));
+    return;
+  }
+  if(d.custom){command('custom',d.custom);show('settings');return}
   if (d.mode) {
     playlist = d.mode;
     show('home');
@@ -4710,6 +4819,7 @@ menu.addEventListener('change', (e) => {
     menu.querySelector('#' + e.target.id)?.focus();
   }
   if (e.target.id === 'map-choice') selectedMap = e.target.value;
+  if(e.target.id==='preview-agent' && Object.hasOwn(AGENTS,e.target.value)){agentId=e.target.value;show('collection');return}
   if (e.target.id === 'collection-weapon') {
     collectionGun = e.target.value;
     show('collection');
@@ -4864,6 +4974,7 @@ window.addEventListener('keydown', (event) => {
       [
         '순풍',
         '상승 기류',
+        '폭발 팩',
         '칼날 폭풍',
         '헤드헌터',
         '역작',

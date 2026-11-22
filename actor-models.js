@@ -1,6 +1,9 @@
 import { fitSkinOutline, muzzleAtMinX } from './skin-outline.js';
 import { recordedAction } from './recorded-weapon.js';
 import { motionAction, sampleMotion } from './weapon-motion.js';
+import {skillHandling} from './skill-handling.js';
+import {armFraming} from './arm-framing.js';
+import {gripContact} from './grip-contact.js';
 import { bindFingers } from './finger-pose.js';
 import { skinArticulation } from './skin-articulation.js';
 import { abilityProp } from './skill-prop.js';
@@ -410,9 +413,9 @@ export function firstPerson() {
     state,
     clock = 0,
     ready = false;
-  const aimPoint = new T.Vector3();
+  const aimPoint = new T.Vector3(), playerEye = new T.Vector3();
   const rack=new Map();
-  let generation=0;
+  let generation=0, retryAt=0, retryDelay=450;
   function release(model) {
     model.rig.removeFromParent();
     model.armMixer.stopAllAction();
@@ -483,6 +486,12 @@ export function firstPerson() {
     const socket = rig.getObjectByName(spec.fp?.Bone ?? 'R_WeaponMaster');
     if (!socket) {disposeSkin?.();weapon.userData.release?.();return;}
     sleeveEdges(rig);
+    if(!native?.idle && skill && ['blast-pack','stealth-drone'].includes(item)){
+      const box=boundsFor(g,weapon),span=box.getSize(new T.Vector3()),width=item==='blast-pack'?.19:.27;
+      const factor=width/Math.max(span.x,span.y,span.z,.001),center=box.getCenter(new T.Vector3());
+      const carrier=new T.Group(); carrier.add(...[...weapon.children]);weapon.add(carrier);
+      carrier.scale.setScalar(factor);carrier.position.copy(center).multiplyScalar(-factor);
+    }
     socket.add(weapon);
     const rot = spec.fp?.Rotation ?? { X: 0, Y: 90, Z: 0 };
     weapon.rotation.set(...[rot.X, rot.Y, rot.Z].map(T.MathUtils.degToRad));
@@ -512,12 +521,8 @@ export function firstPerson() {
         blending: T.AdditiveBlending,
       }),
     );
-    if (!skill && skin?.performance) {
-      spark.material.map = texture('/weapon-audio/' + skin.id + '-flash.png');
-      spark.material.map = spark.material.map.clone();
-      spark.material.map.repeat.x = 1 / 3;
-      spark.material.color.set(0xffffff);
-    } else spark.material.map = glow();
+    spark.material.map = glow();
+    if (skin?.visualOn && skin.tint) spark.material.color.set(skin.tint);
     spark.scale.set(0.14, 0.14, 1);
     spark.visible = false;
     muzzle?.add(spark);
@@ -526,9 +531,12 @@ export function firstPerson() {
         ? Array.from({ length: 5 }, (_, i) => weapon.getObjectByName('Knife' + (i + 1)))
         : null;
     state = { stamp, rig, weapon, eye, muzzle, spark, knives, disposeSkin, armMixer, gunMixer, poses,
+      gesture:skill && !native?.idle && !usesBow(skill)?skillHandling(rig,weapon,eye,skill):null,
       bow:usesBow(skill)?bowPresentation(rig,weapon,skill,eye):null,
       articulation:skill ? null : skinArticulation(rig,weapon,gun,skin,actions,fallback),
       framing:frameGun(rig,weapon,eye,!skill && !abilityWeapons[gun] && gun!=='melee' && (!library.skins[skin?.id] || skin?.banner==='rogue')),
+      elbows:!skill?armFraming(rig):null,
+      contact:skin && !skill ? gripContact(rig,weapon) : null,
       fingers: bindFingers(rig), equip: requestedAt };
     ready = true;
   }
@@ -553,11 +561,16 @@ export function firstPerson() {
     update(p, gun, skin, now, enabled, reloadSeconds, skill = '', charge = 0) {
       clock = now;
       const stamp = [p.agent, gun, skin?.profileKey, skill].join('/');
-      if (id !== stamp) {
+      if (id !== stamp || (retryAt && performance.now() >= retryAt)) {
+        if (stamp !== id) retryDelay = 450;
         id = stamp;
-        this.loading = equip(p.agent, gun, skin, stamp, skill).catch((e) =>
-          console.warn('1인칭 모델', e.message),
-        );
+        retryAt = 0;
+        this.loading = equip(p.agent, gun, skin, stamp, skill).catch((error) => {
+          if (id !== stamp) return;
+          console.warn('1인칭 모델', error.message);
+          retryAt = performance.now() + retryDelay;
+          retryDelay = Math.min(8000, retryDelay * 2);
+        });
       }
       this.visible = !!(ready && enabled);
       if (!this.visible) return false;
@@ -605,17 +618,26 @@ export function firstPerson() {
         tag = 'equip';
         ratio = (now - state.equip) / equipSeconds;
       }
+      state.elbows?.restore();
+      state.gesture?.restore();
+      state.contact?.restore();
       state.fingers.restore();
       state.framing?.restore();
       state.articulation?.restore();
       pose(tag, T.MathUtils.clamp(ratio, 0, 1));
       state.articulation?.update(bladeAttack && tag===attackPose ? attackName : tag,ratio,age);
-      state.framing?.update(tag,ratio);
+      state.framing?.update(tag,ratio,skin?.banner==='rogue');
       if (!skill && skin && (tag==='inspect' || tag==='reload' || tag==='equip'))
-        state.fingers.apply(skin, tag, ratio);
+        if(!state.fingers.apply(skin, tag, ratio))state.contact?.apply(ratio);
+      if(skill==='폭발 팩'){
+        const cast=p.lastCast;
+        state.weapon.visible=!(cast?.name===skill && cast.end>now && (cast.alt || now-cast.at>.14));
+      }
+      if(skill==='차원 표류')state.weapon.visible=!(p.phaseUntil>now && now>(p.driftEntered??0)+.48);
       state.weapon.userData.animate?.(now,tag,ratio);
       state.weapon.userData.drawGlow?.(tag,ratio);
       state.weapon.userData.foldBlade?.(tag,ratio);
+      state.gesture?.update(tag,ratio);
       state.bow?.update(charge,tag,ratio);
       if(state.weapon.userData.spareMagazine)state.weapon.userData.spareMagazine.visible=tag==='reload' && ratio>.12 && ratio<.82;
       if (state.knives) {
@@ -642,22 +664,30 @@ export function firstPerson() {
       }
       if(!p.ads && !skill){
         const handling=tag==='reload'||tag==='inspect'?Math.sin(Math.PI*ratio):0;
-        cam.position.x-=.075+.055*handling;
+        const tall = Math.max(1, 1.70 / Math.max(.6, cam.aspect));
+        const pullback = (gun==='vandal' ? .17 : gun==='melee' ? .065 : .115) + .10 * handling;
+        cam.position.x -= pullback * Math.min(1.75,tall);
+        cam.position.z -= .026 * handling;
         cam.position.y+=.012;
       }
-      cam.fov = p.ads ? 43 : skill ? 55 : 64;
+      if(!p.ads)state.elbows?.update(cam);
+      cam.fov = p.ads ? 43 : skill ? 59 : 67;
       state.spark.visible = !skill && !['melee', 'blades'].includes(gun) && age >= 0 && age < 0.072;
-      if (!skill && skin?.performance && state.spark.material.map)
-        state.spark.material.map.offset.x = Math.min(2, Math.floor(age / 0.024)) / 3;
       return true;
     },
-    render(renderer, aspect) {
+    render(renderer, aspect, showcase=false) {
       if (!this.visible) return;
+      if(showcase){
+        playerEye.copy(cam.position);
+        cam.translateZ(.32);
+        cam.translateY(-.14);
+      }
       cam.aspect = aspect;
       cam.updateProjectionMatrix();
       renderer.autoClear = false;
       renderer.clearDepth();
       renderer.render(scene, cam);
+      if(showcase) cam.position.copy(playerEye);
       renderer.autoClear = true;
     },
     dispose() {

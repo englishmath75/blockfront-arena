@@ -335,3 +335,45 @@ test('Ascent Market shutter opens a passable gap at the source door frame', () =
   damageMechanism(gate, 500);
   assert.equal(geometry(gate), null);
 });
+import {stepHeight} from './walk-surface.js';
+import {peerMotion} from './peer-motion.js';
+import {stickPack,blastImpact} from './blast-pack.js';
+import {customControls} from './custom-game.js';
+
+test('a step requires forward support and overhead clearance',()=>{
+  const world={structure:{ceiling:()=>Infinity}};
+  const floor=(x,z,y,r)=>r>.2 || x>.15?.28:0;
+  assert.equal(stepHeight(world,0,0,0,true,1.53,floor,0,.1),0);
+  assert.equal(stepHeight(world,0,0,0,true,1.53,floor,.1,0),.28);
+  world.structure.ceiling=()=>1.7;
+  assert.equal(stepHeight(world,0,0,0,true,1.53,floor,.1,0),0);
+});
+test('reconciliation preserves movement between packets and snaps on respawn',()=>{
+  const motion=peerMotion(),p={x:0,y:0,z:0,height:1.53,yaw:0,pitch:0};
+  const walk=(dt,o,keys)=>{if(keys.has('KeyW'))o.z-=5*dt};
+  motion.reconcile(p,1,1000,true,walk);
+  motion.advance(p,new Set(['KeyW']),.02,1020,walk);
+  assert.equal(motion.view().z,-.1);
+  motion.reconcile({...p,motionStamp:990,motionSeen:1},1,1030,false,walk);
+  assert.equal(motion.view().z,-.1);
+  motion.reconcile({...p,x:20},2,1200,true,walk);
+  assert.equal(motion.view().x,20);assert.equal(motion.view().z,0);
+  motion.record({...p,id:1},1000,true);motion.record({...p,id:1,x:1},1100,false);
+  assert(motion.other({id:1},1175).x>0 && motion.other({id:1},1175).x<1);
+});
+test('Blast Pack sticks, arms after landing and can propel its owner twice',()=>{
+  const pack={x:0,y:0,z:0,owner:'raze'},p={id:'raze',x:1,y:0,z:0,height:1.53,vy:0};
+  stickPack(pack,new T.Vector3(0,1,0),10);
+  assert.equal(pack.end,15);assert.equal(pack.armedAt,11.5);
+  assert.equal(blastImpact(pack,p,10.1),0);assert(p.blastMotion.vx>0 && p.vy>0);
+  const initial=p.blastMotion.vx;blastImpact(pack,p,10.4);assert(p.blastMotion.vx>initial);
+  assert.equal(blastImpact(pack,{...p,id:'enemy'},11.4),0);
+  assert(blastImpact(pack,{...p,id:'enemy'},11.5)>0);
+  assert.equal(blastImpact(pack,p,12),0);
+});
+test('custom controls expose global match actions only to the host',()=>{
+  assert.equal(customControls(false,{enabled:false},false),'');
+  const guest=customControls(false,{enabled:true},false);
+  assert(guest.includes('data-custom="ghost"'));assert(!guest.includes('data-custom="restart"'));
+  assert(customControls(true,{enabled:true},false).includes('data-custom="restart"'));
+});

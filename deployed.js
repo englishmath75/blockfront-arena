@@ -15,9 +15,9 @@ const devices = {
 };
 export const remoteAbilities = ['올빼미 드론', '잠입 드론', '정찰자', '요동봇'];
 export const distanceSmokes = ['어둠의 장막', '해만'];
-export const remoteInteract = ['cage', 'swarm', 'vine', 'passage', 'decoyMark'];
+export const remoteInteract = ['cage', 'swarm', 'vine', 'passage', 'decoyMark','gatecrash'];
 export const deviceKind = (name) => devices[name];
-export const reusable = (name) => devices[name] && !remoteInteract.includes(devices[name]);
+export const reusable = (name) => devices[name] && (devices[name]==='gatecrash' || !remoteInteract.includes(devices[name]));
 export function targetedDevice(player, list, ray) {
   return list
     .filter((d) => d.owner === player.id && remoteInteract.includes(d.kind) && d.end > 0)

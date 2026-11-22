@@ -11,7 +11,7 @@ export function triangleTerrain(data, coarse) {
     normal = new T.Vector3(),
     hit = new T.Vector3(),
     ray = new T.Ray(),
-    stack = [];
+    stack = [], slopePlane=new T.Plane();
   function load(i) {
     let j = i * 9;
     tri.a.set(vertices[j] / 100, vertices[j + 1] / 100, vertices[j + 2] / 100);
@@ -60,7 +60,7 @@ export function triangleTerrain(data, coarse) {
     );
     return best;
   }
-  function support(x, z, limit = 256, r = 0.015) {
+  function scanSupport(x,z,limit,r) {
     const start = Number.isFinite(limit) ? Math.min(300, limit + 0.009) : 300;
     let found = -Infinity;
     const offsets =
@@ -98,7 +98,7 @@ export function triangleTerrain(data, coarse) {
     }
     return first;
   }
-  function blocked(x, z, y, r = 0.28, h = 1.67) {
+  function scanBody(x,z,y,r,h) {
     query.min.set(x - r, y + 0.09, z - r);
     query.max.set(x + r, y + h - 0.012, z + r);
     return walk(
@@ -111,13 +111,27 @@ export function triangleTerrain(data, coarse) {
           Math.max(tri.a.y, tri.b.y, tri.c.y) > y &&
           Math.min(tri.a.y, tri.b.y, tri.c.y) < y + 0.34
         ) {
-          const onPlane = tri.getPlane(new T.Plane());
+          const onPlane = tri.getPlane(slopePlane);
           if (Math.abs(onPlane.distanceToPoint(point.set(x, y, z))) < r * 0.8 + 0.045) return false;
         }
         return true;
       },
     );
   }
+  // Exact repeated capsule queries from stationary actors and input replay can
+  // share results. Moving doors and constructed walls are tested separately.
+  function cachedQuery(query){
+    const entries=new Array(2048);
+    return (x,z,y,r,h)=>{
+      const slot=((Math.imul(Math.round(x*40),73856093)^Math.imul(Math.round(z*40),19349663)^Math.imul(Math.round(y*50),83492791)^Math.round(r*100)^Math.round((h||0)*100))>>>0)%entries.length;
+      const entry=entries[slot];
+      if(entry && entry.x===x && entry.z===z && entry.y===y && entry.r===r && entry.h===h)return entry.value;
+      const value=query(x,z,y,r,h);entries[slot]={x,z,y,r,h,value};return value;
+    };
+  }
+  const floorQuery=cachedQuery(scanSupport),bodyQuery=cachedQuery(scanBody);
+  function support(x,z,limit=256,r=.015){return floorQuery(x,z,limit,r,0)}
+  function blocked(x,z,y,r=.28,h=1.67){return bodyQuery(x,z,y,r,h)}
   function spawn(x, z, hint) {
     const base = coarse.spawn(x, z, hint);
     for (let radius of [0, 0.35, 0.7, 1.4, 2.1, 3.5])

@@ -163,6 +163,10 @@ export function roomMiddleware() {
         const host = [...room.members.values()].find((m) => m.id === room.host);
         emit(host, 'input', { from: p.id, input: data.input });
       } else if (action === 'state' && room.started && p.id === room.host) {
+        if(Number.isSafeInteger(data.state?.revision)){
+          if(data.state.revision<=(room.lastRevision??-1))return reply(200,{ok:true});
+          room.lastRevision=data.state.revision;
+        }
         room.lastState='event: state\ndata: '+JSON.stringify(data.state)+'\n\n';
         room.members.forEach((m) => {
           if (m.id !== p.id) sendState(m,room.lastState);

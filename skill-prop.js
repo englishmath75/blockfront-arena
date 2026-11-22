@@ -1,4 +1,5 @@
 import * as T from 'three';
+import {handStyle} from './skill-handling.js';
 
 const styles = {
   세이지: ['jade', '#49d5c2'],
@@ -60,7 +61,8 @@ const bare = new Set([
 
 export function abilityProp(agent, skill) {
   const root = new T.Group();
-  const [kind, tint] = styles[agent] ?? ['prism', '#88cdef'];
+  const [fallback,tint]=styles[agent]??['prism','#88cdef'];
+  const kind=handStyle[skill]??fallback;
   const core = new T.Group();
   root.add(core);
   const accent = new T.MeshBasicMaterial({ color: tint });
@@ -82,7 +84,13 @@ export function abilityProp(agent, skill) {
   }
   const orbit = [];
   if (!bare.has(skill)) {
-    if (kind === 'tablet' || kind === 'bracer' || kind === 'card') {
+    if(kind==='crack'){
+      piece(shard,dark,[.044,.082,.025]);
+      for(let i=0;i<5;i++){const b=piece(shard,i%2?accent:shell,[.009,.045,.012],[(i-2)*.015,.014*Math.sin(i*2),0]);b.rotation.z=(i-2)*.24;orbit.push(b)}
+    }else if(kind==='charge' || kind==='pilot'){
+      piece(globe,dark,[.078,.036,.062]);
+      for(let i=0;i<3;i++){const x=(i-1)*.039;piece(box,shell,[.032,.06,.09],[x,0,0]);piece(globe,accent,[.007,.007,.009],[x,.017,.043])}
+    }else if (kind === 'tablet' || kind === 'bracer' || kind === 'card') {
       const tablet = kind === 'tablet',
         w = tablet ? 0.16 : 0.083,
         h = tablet ? 0.1 : 0.061;

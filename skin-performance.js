@@ -1,6 +1,7 @@
+import {sculptedFinisher,prepareVolumes} from './sculpted-finisher.js';
 import { recordedAction } from './recorded-weapon.js';
 import { motionAction } from './weapon-motion.js';
-import { arenaFinisher, hasArenaFinisher } from './arena-finisher.js';
+import { arenaFinisher } from './arena-finisher.js';
 import { finishLighting, prepareFinishLighting } from './finish-lighting.js';
 import shots from './shot-matches.json' with { type: 'json' };
 import filmed from './finisher-frames.json' with { type: 'json' };
@@ -10,16 +11,6 @@ const voices = new Set(),
   clips = new Map();
 let reloadSource,
   audioEpoch = 0;
-const finishImages = new Map();
-function finishImage(family) {
-  if (!finishImages.has(family)) {
-    const image = new Image();
-    image.src = '/effects/finish-' + family + '.webp';
-    finishImages.set(family,image);
-    if (finishImages.size>3) finishImages.delete(finishImages.keys().next().value);
-  }
-  return finishImages.get(family);
-}
 const path = '/weapon-audio/';
 const performanceAudio=take=>'/performances/'+take.key+'.ogg'+(take.key.endsWith('-fire')?'?v=13':'');
 function discharge(s) {
@@ -43,9 +34,8 @@ export const palettes = {
 export function prepareSkin(s,context) {
   if (!s) return;
   if (s.finishOn && filmed[s.family]) {
-    void prepareFinishLighting();
+    void prepareFinishLighting();void prepareVolumes();
     if (filmed[s.family].audio !== false) prime('/effects/finish-'+s.family+'.ogg');
-    if(!hasArenaFinisher(s.banner??s.family)) void finishImage(s.family).decode().catch(()=>{});
   }
   if(s.banner==='rogue' && s.soundOn)prime(path+'rogue-draw.ogg');
   const reference=discharge(s);
@@ -179,119 +169,13 @@ function block(group, color, x, y, z, w, h, d) {
   group.add(o);
   return o;
 }
-export function weaponAnimation(world) {
-  const prop = new T.Group();
-  world.tool.add(prop);
-  const crystal = block(prop, '#8debff', 0, 0, 0, 0.055, 0.18, 0.055);
-  const ring = block(prop, '#ffd270', 0, 0, 0, 0.075, 0.035, 0.075);
-  const aura = block(prop, '#f6fbff', 0, 0, 0, 0.025, 0.2, 0.028);
-  prop.visible = false;
-  const sprite = new T.Sprite(
-    new T.SpriteMaterial({ transparent: true, depthWrite: false, depthTest: false, toneMapped: false }),
-  );
-  sprite.renderOrder = 10;
-  world.tool.add(sprite);
-  sprite.position.set(0, 0.018, -0.515);
-  sprite.scale.set(0.48, 0.48, 1);
-  sprite.visible = false;
-  let family, texture, skinId;
-  return {
-    draw(s, reload, inspect, clock, shotAge) {
-      if (skinId !== s?.profileKey) {
-        skinId = s?.profileKey;
-        texture?.dispose();
-        texture = null;
-        sprite.material.map = null;
-        if (s?.performance) {
-          const id = s.profileKey;
-          new T.TextureLoader().load(path + s.id + '-flash.png', (t) => {
-            if (id !== skinId) {
-              t.dispose();
-              return;
-            }
-            t.magFilter = T.NearestFilter;
-            t.minFilter = T.NearestFilter;
-            t.colorSpace = T.SRGBColorSpace;
-            t.repeat.set(1 / 3, 1);
-            texture = sprite.material.map = t;
-            sprite.material.needsUpdate = true;
-          });
-        }
-      }
-      sprite.visible = !!texture && shotAge >= 0 && shotAge < 0.072;
-      if (sprite.visible) texture.offset.x = Math.min(2, Math.floor(shotAge / 0.024)) / 3;
-      family = s?.family ?? s?.performance;
-      world.flash.material.color.set(palettes[family] ?? '#ffdb8b');
-      world.flash.userData.filmed = sprite.visible;
-      world.tool.rotation.set(0, 0, 0);
-      prop.visible = false;
-      if (inspect > 0) {
-        const arc = Math.sin(inspect * Math.PI);
-        world.tool.rotation.y = -0.95 * arc;
-        world.tool.rotation.z = 0.42 * arc;
-        world.tool.position.x -= 0.1 * arc;
-      }
-      if (reload <= 0 || reload >= 1 || !family) return;
-      const arc = Math.sin(reload * Math.PI),
-        insert = Math.max(0, Math.min(1, (reload - 0.26) / 0.42));
-      world.tool.position.y += 0.09 * arc;
-      const prime = family === 'prime',
-        dragon = family === 'dragon';
-      world.tool.rotation.z = (prime ? -0.68 : dragon ? 0.32 : -0.38) * arc;
-      world.tool.rotation.x = (dragon ? 0.48 : -0.35) * arc;
-      prop.visible = reload > 0.12 && reload < 0.78;
-      prop.position.set(-0.16 * (1 - insert), 0.26 * (1 - insert) + (prime ? 0.06 : -0.1), -0.035);
-      prop.rotation.set(0, clock * (family === 'reaver' ? 6 : 2), prime ? 0.38 : 0);
-      crystal.material.color.set(palettes[family]);
-      aura.material.color.set(dragon ? '#fbd672' : '#edfbff');
-      crystal.scale.set(prime ? 0.055 : 0.085, 0.16, prime ? 0.055 : 0.07);
-      ring.visible = prime;
-      aura.visible = family !== 'reaver';
-    },
-  };
-}
 export function finisher(scene, family, point, now) {
   if (!palettes[family]) return null;
   const sequence = filmed[family];
   const light=sequence && finishLighting(scene,point,family,sequence);
   const native=arenaFinisher(scene,point.theme??family,point,now,sequence?.duration??4,palettes[family],light);
   if(native)return native;
-  if (sequence) {
-    const image = finishImage(family);
-    const texture = new T.Texture(image);
-    texture.colorSpace = T.SRGBColorSpace;
-    texture.generateMipmaps = false;
-    texture.minFilter = T.LinearFilter;
-    texture.repeat.set(1 / 8, 1 / sequence.rows);
-    const material = new T.SpriteMaterial({
-        map: texture,
-        transparent: true,
-        depthWrite: false,
-        blending: T.AdditiveBlending,
-      }),
-      sprite = new T.Sprite(material);
-    const height = family === 'reaver' ? 6 : 4.7;
-    sprite.position.set(point.x, point.y + height * 0.46, point.z);
-    sprite.scale.set(height * sequence.aspect, height, 1);
-    scene.add(sprite);
-    return {
-      update(t) {
-        const frame = Math.floor(Math.max(0, t - now) * sequence.fps);
-        if (frame >= sequence.frames) {
-          light?.dispose();
-          sprite.removeFromParent();
-          texture.dispose();
-          material.dispose();
-          return false;
-        }
-        sprite.visible = image.complete && image.naturalWidth>0;
-        light?.update(t-now);
-        if (sprite.visible && !texture.version) texture.needsUpdate = true;
-        texture.offset.set((frame % 8) / 8, 1 - (1 + Math.floor(frame / 8)) / sequence.rows);
-        return true;
-      },
-    };
-  }
+  if(sequence)return sculptedFinisher(scene,family,point.theme,point,now,sequence,palettes[family],light);
   const group = new T.Group(),
     tone = palettes[family];
   group.position.set(point.x, point.y, point.z);
@@ -341,12 +225,14 @@ export function finisher(scene, family, point, now) {
   return {
     update(t) {
       const age = t - now;
-      if (age > 3.2) {
+      if (age > (sequence?.duration ?? 3.2)) {
+        light?.dispose();
         group.removeFromParent();
         group.traverse((o) => o.material?.dispose());
         return false;
       }
-      group.scale.setScalar(Math.min(1, age * 6 + 0.05) * Math.min(1, (3.2 - age) * 4));
+      light?.update(age);
+      group.scale.setScalar(Math.min(1, age * 6 + 0.05) * Math.min(1, ((sequence?.duration ?? 3.2) - age) * 4));
       if (family === 'prime') group.position.y = point.y + Math.max(0, 1 - age * 1.35) * 2;
       if (family === 'dragon') group.position.y = point.y + 1.1;
       if (family === 'reaver' || family === 'chaos')

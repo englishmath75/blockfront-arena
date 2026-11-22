@@ -33,6 +33,7 @@ export function bindFingers(rig) {
       if(!frames && !bank && !timed)return;
       const at=Math.max(0,Math.min(1,progress))*((frames?.length??1)-1),first=Math.floor(at);
       eye?.getWorldPosition(eyeAt);
+      let measured=false;
       for (const {side, palm, joints} of hands) {
         palm[0].getWorldPosition(origin);
         let a=frames?.[first]?.[side],b=frames?.[Math.min(first+1,(frames?.length??1)-1)]?.[side],mix=at-first;
@@ -53,7 +54,8 @@ export function bindFingers(rig) {
           }
           mix=b?firstD/(firstD+secondD||1):0;weight=.58*(1-firstD/.14)*Math.min(1,progress*8,(1-progress)*8);
         }
-        if(!a && !b)continue;
+        if((!a && !b) || weight<=0)continue;
+        measured=true;
         palm[2].getWorldPosition(forward).sub(origin).normalize();
         palm[3].getWorldPosition(across).sub(palm[1].getWorldPosition(rest));
         across.addScaledVector(forward,-across.dot(forward)).normalize();
@@ -72,6 +74,7 @@ export function bindFingers(rig) {
           bone.quaternion.rotateTowards(turn, Math.min(.95,bone.quaternion.angleTo(turn)) * weight);
         });
       }
+      return measured;
     },
   };
 }

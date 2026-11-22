@@ -209,7 +209,7 @@ export function armory(p, id, free) {
   );
 }
 import skinSources from './skin-sources.json' with {type:'json'};
-export function collection(gun, equipped, options = {}) {
+export function collection(gun, equipped, options = {},agent='제트') {
   const selected = equipped[gun],
     items = skins[gun] ?? [];
   return (
@@ -229,6 +229,8 @@ export function collection(gun, equipped, options = {}) {
       )
       .join('') +
     '</select></label><div id="weapon-turntable" aria-label="3D 무기 미리보기"></div><small>드래그해서 회전</small>' +
+    '<div class="collection-actions"><label>미리보기 요원 <select id="preview-agent">'+Object.keys(AGENTS).map(n=>'<option'+(n===agent?' selected':'')+'>'+escape(n)+'</option>').join('')+'</select></label>'+
+    [['model','외형 회전'],['equip','장착'],...(gun==='melee'?[]:[['reload','재장전']]),['inspect','살펴보기']].map(([id,label])=>'<button data-preview="'+id+'" aria-pressed="'+(id==='model')+'">'+label+'</button>').join('')+'</div>'+
     (skinSources[selected]?'<a class="skin-reference" target="_blank" rel="noopener noreferrer" href="https://www.youtube.com/watch?v='+skinSources[selected]+'">스킨 시연 영상</a>':'')+
     skinPreviews(
       skinProfile(
@@ -296,15 +298,13 @@ function skinPreviews(s) {
   const color = s.variants?.find((v) => v.id === s.variant);
   const clip = color?.clip ? { url: color.clip } : s.clips?.find((c) => c.level === s.level);
   const preview = clip
-    ? '<details class="skin-preview"><summary>' +
+    ? '<a class="skin-reference" target="_blank" rel="noopener noreferrer" href="'+escape(clip.url)+'">' +
       escape(s.name) +
       ' · ' +
       s.level +
       '레벨' +
       (color?.clip ? ' · ' + escape(color.name) : '') +
-      ' 시연 영상</summary><video id="skin-video" controls playsinline preload="none" src="' +
-      escape(clip.url) +
-      '"></video></details>'
+      ' 공식 시연 ↗</a>'
     : '';
   return (
     '<div class="skin-loadout"><img src="' +
