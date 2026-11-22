@@ -17,7 +17,57 @@ import {
   rideStep,
 } from './mechanisms.js';
 import { launch, flight } from './utility.js';
+import { muzzleAtMinX } from './skin-outline.js';
+import { iceRadius, onIce } from './terrain-feedback.js';
+import { recordedAction } from './recorded-weapon.js';
+import handActions from './hand-actions.json' with { type: 'json' };
 const asset = (path) => fs.readFileSync(new URL('./public/' + path, import.meta.url));
+
+test('the Vandal skin follows the actual muzzle and trigger after rotating the view model', () => {
+  const file = gunzipSync(asset('models/vandal.glb.gz'));
+  const data = JSON.parse(file.subarray(20, 20 + file.readUInt32LE(12)));
+  const root = new T.Group();
+  const nodes = data.nodes.map(node => {
+    const object = new T.Object3D();
+    object.name = node.name;
+    if (node.translation) object.position.fromArray(node.translation);
+    if (node.rotation) object.quaternion.fromArray(node.rotation);
+    if (node.scale) object.scale.fromArray(node.scale);
+    if (node.matrix) new T.Matrix4().fromArray(node.matrix).decompose(object.position, object.quaternion, object.scale);
+    return object;
+  });
+  data.nodes.forEach((node, i) => node.children?.forEach(child => nodes[i].add(nodes[child])));
+  for (const id of data.scenes[data.scene ?? 0].nodes) root.add(nodes[id]);
+  root.rotation.y = Math.PI;
+  root.updateMatrixWorld(true);
+  assert(root.getObjectByName('Trigger'));
+  assert.equal(muzzleAtMinX(root), true);
+});
+
+test('ice reaches nearby players as it expands and does not slow the floor above', () => {
+  const zone = {x:4,y:2,z:3,w:10,born:8,end:15};
+  const player = {x:7,y:2,z:3};
+  assert.equal(iceRadius(zone,8),0);
+  assert.equal(onIce(zone,player,8.2),false);
+  assert.equal(onIce(zone,player,8.5),true);
+  assert.equal(onIce(zone,{...player,y:5},10),false);
+  assert.equal(onIce(zone,player,15),false);
+});
+
+test('each recorded hand gesture resolves its exact sheets and sound for the equipped appearance', () => {
+  for (const [appearance, profile] of Object.entries(handActions)) {
+    for (const [name, action] of Object.entries(profile.actions)) {
+      const skin = { id: appearance, level: profile.level };
+      assert.equal(recordedAction(skin, name), action);
+      assert.equal(recordedAction({...skin,id:'other',variant:appearance}, name, true), action);
+      assert.equal(recordedAction({...skin,id:'other',variant:'unmatched'},name),undefined);
+      for (let i=0; i<Math.ceil(action.n/action.capacity); i++) {
+        assert.equal(asset('performances/'+action.key+'-'+i+'.webp').toString('ascii',8,12),'WEBP');
+      }
+      assert.equal(asset('performances/'+action.key+'.ogg').toString('ascii',0,4),'OggS');
+    }
+  }
+});
 function layout(name) {
   const map = MAPS.find((m) => m.name === name);
   setArena(name);

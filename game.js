@@ -2613,7 +2613,11 @@ function drawProjectiles() {
         const holder = new T.Group();
         m.add(holder);
         holder.scale.set(1 / m.scale.x, 1 / m.scale.y, 1 / m.scale.z);
-        attachProp(holder, slug, a.type === 'recon' || a.type === 'shock' ? 0.72 : 0.32);
+          const arrow = a.type === 'recon' || a.type === 'shock';
+          const orientation = new T.Group();
+          holder.add(orientation);
+          if (arrow) orientation.rotation.y = Math.PI / 2;
+          attachProp(orientation, slug, arrow ? 0.72 : 0.32);
         m.material.visible = false;
       } else if (a.type === 'cloud') {
         m.geometry = new T.SphereGeometry(0.6, 16, 12);
@@ -3319,6 +3323,21 @@ function drawWorld(realTime) {
   } else {
     for (const d of match.devices) {
       drawDevice(d, now);
+      if (d.type === 'recon' && d.normal) {
+        const mesh = d.mesh;
+        if (!mesh.userData.mounted) {
+          mesh.userData.mounted = true;
+          const normal = new T.Vector3().fromArray(d.normal).normalize();
+          mesh.scale.setScalar(1);
+          mesh.quaternion.setFromUnitVectors(new T.Vector3(1, 0, 0), normal);
+          const mount = new T.Group();
+          mount.position.x = .23;
+          mesh.add(mount);
+          attachProp(mount, 'recon-bolt', .54);
+          mesh.material.visible = false;
+        }
+        mesh.position.set(d.x, d.y, d.z);
+      }
       if(d.type==='ice' || d.type==='reconWave'){
         d.mesh.visible=false;
         if(!d.mesh.userData.heard){
