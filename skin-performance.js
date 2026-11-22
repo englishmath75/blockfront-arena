@@ -1,5 +1,6 @@
 import { recordedAction } from './recorded-weapon.js';
 import { motionAction } from './weapon-motion.js';
+import { arenaFinisher } from './arena-finisher.js';
 import filmed from './finisher-frames.json' with { type: 'json' };
 import * as T from 'three';
 let library, loading, localFiles;
@@ -33,13 +34,12 @@ export const palettes = {
   chaos: '#c88dff',
   ion: '#57deff',
 };
-export function prepareSkin(s) {
+export function prepareSkin(s,context) {
   if (!s) return;
   if (s.finishOn && filmed[s.family]) {
-    finishImage(s.family);
     if (filmed[s.family].audio !== false) prime('/effects/finish-'+s.family+'.ogg');
   }
-  loading ??= fetch('/weapon-audio/events.json')
+  loading ??= fetch('/weapon-audio/events.json?v=1.2')
     .then((r) => {
       if (r.ok) return r.json();
     })
@@ -59,7 +59,13 @@ export function prepareSkin(s) {
   void loading.then(() => {
     for (const ev of ['shot', 'reload']) {
       const cue = library?.bySkin[s.id]?.[ev]?.[0];
-      if (cue) prime(url(cue[1]));
+      if (cue && localFiles?.has(cue[1])) prime(url(cue[1]));
+    }
+    if(context && s.soundOn){
+      const action=recordedAction(s,'shot',true);
+      const urls=action?['/performances/'+action.key+'.ogg']:s.performance?[path+s.id+'-shot.ogg']:
+        (library?.variants?.[s.id]?.shot??[]).filter(id=>localFiles?.has(id)).map(url);
+      for(const src of urls)decodeCue(context,src);
     }
   });
 }
@@ -91,7 +97,7 @@ export function stopAnimationAudio() {
       voices.delete(voice);
     }
 }
-export function playSkinEvent(s, action, duration, volume) {
+export function playSkinEvent(s, action, duration, volume, context, gun, balance=0) {
   if (!s) return false;
   const film = recordedAction(s, action, true);
   const captured = !film && motionAction(s, action);
@@ -115,8 +121,17 @@ export function playSkinEvent(s, action, duration, volume) {
       ? [[0, '/motion/' + s.id + '-' + action + '.ogg']]
       : recorded
         ? [[0, path + s.id + '-' + action + '.ogg']]
-        : sequence.map(([pct, id]) => [pct, url(id)]);
+        : sequence.filter(([,id])=>localFiles?.has(id)).map(([pct, id]) => [pct, url(id)]);
   if (!events.length) return false;
+  if(action==='shot' && context?.state==='running'){
+    const then=context.currentTime;
+    void decodeCue(context,events[0][1]).then(buffer=>{
+      if(context.currentTime-then>.18)return;
+      if(buffer) startSample(context,buffer,volume,balance);
+      else playBase(context,gun,'shot',volume,balance);
+    });
+    return true;
+  }
   for (const [pct, src] of events) {
     const template = prime(src),
       a = template.cloneNode();
@@ -225,6 +240,8 @@ export function weaponAnimation(world) {
 export function finisher(scene, family, point, now) {
   if (!palettes[family]) return null;
   const sequence = filmed[family];
+  const native=arenaFinisher(scene,point.theme??family,point,now,sequence?.duration??4,palettes[family]);
+  if(native)return native;
   if (sequence) {
     const image = finishImage(family);
     const texture = new T.Texture(image);
@@ -345,6 +362,7 @@ const baseGuns = new Set([
   'odin',
   'ares',
   'vandal',
+  'warden',
   'bulldog',
   'phantom',
   'judge',
@@ -363,6 +381,29 @@ const baseGuns = new Set([
   'stinger',
 ]);
 const baseBuffers = new Map();
+const shotBuffers = new Map();
+function decodeCue(context,src){
+  if(!shotBuffers.has(src)){
+    const task=fetch(src).then(r=>{if(!r.ok)throw Error();return r.arrayBuffer()})
+      .then(bytes=>context.decodeAudioData(bytes)).catch(()=>{shotBuffers.delete(src);return null});
+    shotBuffers.set(src,task);
+    if(shotBuffers.size>32)shotBuffers.delete(shotBuffers.keys().next().value);
+  }
+  return shotBuffers.get(src);
+}
+function startSample(context,buffer,volume,balance){
+  const source=context.createBufferSource(),gain=context.createGain(),pan=context.createStereoPanner();
+  source.buffer=buffer;gain.gain.value=volume*.78;pan.pan.value=balance;
+  source.connect(gain).connect(pan).connect(context.destination);
+  source.onended=()=>{if(reloadSource===source)reloadSource=null;source.disconnect();gain.disconnect();pan.disconnect()};
+  source.start();return source;
+}
+export function playHandling(context,action,volume){
+  const epoch=audioEpoch;
+  void decodeCue(context,path+'handling-'+action+'.ogg').then(buffer=>{
+    if(buffer && epoch===audioEpoch && context.state==='running')startSample(context,buffer,volume*.23,0);
+  });
+}
 export function prepareBase(context, gun, action) {
   if (!context || !baseGuns.has(gun) || !['shot', 'reload'].includes(action)) return null;
   const key = gun + '-' + action;
@@ -386,21 +427,8 @@ export function playBase(context, gun, action, volume, balance) {
   void promise.then((buffer) => {
     if (action === 'reload' && epoch !== audioEpoch) return;
     if (!buffer || context.state !== 'running') return;
-    const source = context.createBufferSource(),
-      gain = context.createGain(),
-      pan = context.createStereoPanner();
-    source.buffer = buffer;
-    gain.gain.value = volume * 0.78;
-    pan.pan.value = balance;
-    source.connect(gain).connect(pan).connect(context.destination);
+    const source=startSample(context,buffer,volume,balance);
     if (action === 'reload') reloadSource = source;
-    source.onended = () => {
-      if (reloadSource === source) reloadSource = null;
-      source.disconnect();
-      gain.disconnect();
-      pan.disconnect();
-    };
-    source.start();
   });
   return true;
 }

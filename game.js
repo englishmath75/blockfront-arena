@@ -8,7 +8,7 @@ import voices from './ability-voice.json' with { type: 'json' };
 import skillAudio from './ability-sfx.json' with { type: 'json' };
 import { skinProfile } from './skin-levels.js';
 import { alternateAttack, shotPattern, meleeDamage } from './attacks.js';
-import { recordedEffect } from './skin-performance.js';
+import { recordedEffect, playHandling } from './skin-performance.js';
 import timing from './ability-times.json' with { type: 'json' };
 import { deviceMesh, drawDevice, lanePaths } from './field-effects.js';
 import { modelKey, inspectLength, attachProp } from './actor-models.js';
@@ -248,6 +248,7 @@ function abilityVoice(p, name) {
   void clip.play().catch(() => {});
 }
 function sound(kind, at) {
+  if(!settings.volume)return;
   if (at && at !== match?.player && match?.player?.deafUntil > now) return;
   if (
     !at &&
@@ -267,6 +268,7 @@ function sound(kind, at) {
               ? inspectLength(heldWeapon(p).id, currentSkin(p))
               : 0.5,
         settings.volume * 0.82,
+        audio,heldWeapon(p).id,
       )
     )
       return;
@@ -280,6 +282,8 @@ function sound(kind, at) {
         kind,
         kind === 'reload' ? at.reloadDuration || weaponFor(at).reload : 0.5,
         (settings.volume * 0.82) / (1 + dist * 0.32),
+        audio,heldWeapon(at).id,
+        Math.max(-1,Math.min(1,((at.x-match.player.x)*Math.cos(match.player.yaw)-(at.z-match.player.z)*Math.sin(match.player.yaw))/7)),
       )
     )
       return;
@@ -288,6 +292,7 @@ function sound(kind, at) {
   const p = match?.player;
   const dist = at && p ? range(p, at) : 0;
   if (dist > 18) return;
+  if(kind==='equip'||kind==='inspect'){playHandling(audio,kind,settings.volume);return;}
   if (['shot', 'reload'].includes(kind) && p) {
     const source = at?.kit ? at : p,
       id = heldWeapon(source)?.id;
@@ -941,7 +946,7 @@ function eliminate(p, attacker, attack) {
     !practice()
   ) {
     const family = skin?.family;
-    if (Object.hasOwn(palettes, family)) match.endFx = { family, x: p.x, y: p.y, z: p.z, at: now };
+    if (Object.hasOwn(palettes, family)) match.endFx = { family, theme:skin.banner, x: p.x, y: p.y, z: p.z, at: now };
   }
   if (mode === 'range' && !p.local) {
     p.hp = 100;
@@ -3456,7 +3461,7 @@ function drawWorld(realTime) {
     const skin = currentSkin(watch);
     if (world.skinId !== skin?.profileKey) {
       world.skinId = skin?.profileKey;
-      prepareSkin(skin);
+      prepareSkin(skin,audio);
     }
     world.animation ??= weaponAnimation(world);
     world.animation.draw(
@@ -3483,6 +3488,7 @@ function drawWorld(realTime) {
       !watch.pilot && !watch.down && !(liveSkill === '어둠의 장막' && alternateView),
       watch.reloadDuration || weaponFor(watch).reload,
       liveSkill,
+      watch===self && chargeStart!==null ? Math.min(1,(performance.now()-chargeStart)/1000) : 0,
     );
     if (firstReady || (liveSkill === '어둠의 장막' && alternateView)) world.showSkill('', 0, now);
     if (firstReady) tool.visible = false;
@@ -3525,6 +3531,7 @@ function drawWorld(realTime) {
           modelKey(heldWeapon(o)?.id, currentSkin(o)),
           currentSkin(o),
           o.strike,
+          o.pitch,
         );
       g.visible =
         (o !== watch || !!watch.pilot) &&
@@ -3739,15 +3746,14 @@ function drawHud() {
       '</span>',
   );
   match.feed = match.feed.filter((e) => e.end > now).slice(-4);
-  get('feed').innerHTML = match.feed.map((o) => '<div>' + escape(o.text) + '</div>').join('');
+  updateHudPanel('feed', match.feed.map((o) => '<div>' + escape(o.text) + '</div>').join(''));
   const meter = Math.hypot(p.vx, p.vz);
   const posture =
     p.mode === 'crouch' ? '앉기 · 무음' : p.mode === 'walk' ? '걷기 · 무음' : meter < 0.2 ? '정지' : '달리기';
   document.body.classList.toggle('blind', p.blindUntil > now);
   if (p.blindUntil > now) document.body.style.setProperty('--flash-opacity', Math.min(1,(p.blindUntil-now)/.38));
   document.body.classList.toggle('plasma-blind', p.plasmaUntil > now);
-  get('health').innerHTML =
-    '<strong><i aria-hidden="true">✚</i> ' +
+  updateHudPanel('health', '<strong><i aria-hidden="true">✚</i> ' +
     Math.ceil(watch.hp) +
     '</strong><small>실드 ' +
     (watch.isoShield ? '1회 피해 차단' : Math.ceil(watch.shield + (watch.overheal ?? 0))) +
@@ -3761,10 +3767,9 @@ function drawHud() {
           : watch.suppressed > now
             ? '제압'
             : posture) +
-    '</small>';
+    '</small>');
   const gun = heldWeapon(watch);
-  get('ammo').innerHTML =
-    '<strong>' +
+  updateHudPanel('ammo', '<strong>' +
     (gun.id === 'melee'
       ? '근접'
       : gun.id === 'blades'
@@ -3773,7 +3778,7 @@ function drawHud() {
     '</strong><small>' +
     WEAPONS[gun.id].name +
     (watch.reloading ? ' · 재장전 중' : ' · ' + p.credits.toLocaleString('ko-KR') + ' ₡') +
-    '</small>';
+    '</small>');
   updateHudPanel(
     'skills',
     SLOTS.map(
@@ -3872,8 +3877,7 @@ function drawHud() {
       : now < match.hudUntil && !['buy', 'result'].includes(match.phase)
         ? match.hudText
         : mechanismHint || prompt;
-  get('message').innerHTML =
-    (p.scannedUntil>now?'<strong class="field-alert scanned">위치 발각</strong>':'') +
+  updateHudPanel('message', (p.scannedUntil>now?'<strong class="field-alert scanned">위치 발각</strong>':'') +
     (p.deafUntil>now?'<strong class="field-alert scanned">청각 차단</strong>':'') +
     (p.hinderedUntil>now?'<strong class="field-alert chilled">방해</strong>':
       Math.max(p.iceUntil,p.slowUntil)>now?'<strong class="field-alert chilled">둔화</strong>':'') +
@@ -3884,10 +3888,10 @@ function drawHud() {
         '" value="' +
         core.progress +
         '"></progress>'
-      : '');
+      : ''));
   board.hidden = !keys.has('Tab') || screen !== 'game';
   if (!board.hidden) {
-    board.innerHTML =
+    updateHudPanel('scoreboard',
       '<h3>전광판</h3><table><thead><tr><th>팀</th><th>이름</th><th>처치</th><th>사망</th><th>크레딧</th></tr></thead><tbody>' +
       match.players
         .map(
@@ -3905,7 +3909,7 @@ function drawHud() {
             '</td></tr>',
         )
         .join('') +
-      '</tbody></table>';
+      '</tbody></table>');
   }
 }
 const action = (name, label, primary = false) =>
@@ -3983,7 +3987,7 @@ function show(target) {
       '<div class="row">' +
       (r && room.host
         ? '<button class="primary" data-action="start-room" ' +
-          (r.players.length < (r.mode === '경쟁전' ? 10 : 2) ? 'disabled' : '') +
+          (r.players.length < (r.mode === '경쟁전' ? 10 : 2) || r.connected < r.players.length ? 'disabled' : '') +
           '>경기 시작</button>'
         : '') +
       action('home', '나가기') +
@@ -4216,8 +4220,10 @@ async function load(roster) {
     return;
   }
   if (token !== transition) return;
-  world.stopFinishSound?.();
-  world.dispose();
+  world?.stopFinishSound?.();
+  world?.finishFx?.update(Infinity);
+  clearMatch();
+  world?.dispose();
   setArena(map);
   world = createWorld(canvas, data);
   drawBase();
@@ -4225,8 +4231,13 @@ async function load(roster) {
   get('load-meter').innerHTML = meter(80, '전장 준비');
   const p = match.player;
   world.first.update(p, heldWeapon(p).id, currentSkin(p), now, true, weaponFor(p).reload);
-  world.renderer.compile(world.scene, world.camera);
-  await world.first.loading;
+  const loadedWorld=world;
+  await Promise.all([
+    loadedWorld.renderer.compileAsync(loadedWorld.scene,loadedWorld.camera),
+    loadedWorld.first.loading.then(()=>{
+      if(token===transition)return loadedWorld.renderer.compileAsync(loadedWorld.first.scene,loadedWorld.first.cam);
+    })
+  ]);
   await nextFrame();
   if (token !== transition) return;
   paused = practice();
@@ -4659,7 +4670,7 @@ window.addEventListener('keydown', (event) => {
     const family = currentSkin(match.player)?.family;
     if (family && Object.hasOwn(palettes, family)) {
       const target = match.players.find((o) => o.target && o.i === 2) ?? match.players[3];
-      if (target) match.endFx = { family, x: target.x, y: target.y, z: target.z, at: now };
+      if (target) match.endFx = { family, theme:currentSkin(match.player)?.banner, x: target.x, y: target.y, z: target.z, at: now };
     }
   }
   if (mode === 'range' && code === 'F2') {
@@ -4947,7 +4958,6 @@ document.addEventListener('pointerlockchange', () => {
   show('pause');
 });
 try {
-  world = createWorld(canvas);
   get('crosshair').style.color = settings.color;
   show('home');
   const query = new URLSearchParams(location.search);
@@ -4979,7 +4989,8 @@ try {
       requestAnimationFrame(frame);
       return;
     }
-    const dt = Math.max(0, Math.min(0.1, (time - previous) / 1000));
+    const elapsed=time-previous;
+    const dt = Math.max(0, Math.min(0.1, elapsed / 1000));
     previous = time;
     carry = Math.min(carry + dt, 0.15);
     if (screen === 'game' && unlocked) {
@@ -4996,7 +5007,10 @@ try {
         step(1 / 60);
         carry -= 1 / 60;
       }
-      drawWorld(time);
+      if(match && screen!=='loading'){
+        if(screen==='game')world.frameBudget(time,elapsed);
+        drawWorld(time);
+      }
       if (time - hudAt > 45 && screen === 'game') {
         hudAt = time;
         drawHud();

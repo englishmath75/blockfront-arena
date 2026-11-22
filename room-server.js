@@ -10,6 +10,7 @@ export function roomMiddleware() {
     map: room.map,
     mode: room.mode,
     started: room.started,
+    connected: [...room.members.values()].filter(m=>m.stream).length,
     host: room.host,
     players: [...room.members.values()].map(({ id, agent, team }) => ({ id, agent, team })),
   });
@@ -110,13 +111,14 @@ export function roomMiddleware() {
           'Cache-Control': 'no-cache',
           'X-Accel-Buffering': 'no',
         });
-        emit(p, 'room', view(room));
+        all(room, 'room', view(room));
         const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 20000);
         heartbeat.unref();
         res.on('close', () => {
           clearInterval(heartbeat);
           if (p.stream === res && room.members.has(p.token)) {
             p.stream = null;
+            if(!room.started)all(room,'room',view(room));
             setTimeout(() => {
               if (!p.stream && room.members.has(p.token)) leave(room, p);
             }, 3000).unref();

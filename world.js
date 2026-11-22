@@ -54,7 +54,21 @@ export function createWorld(canvas, data) {
   scene.add(sky);
 
   const renderer = new T.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.6));
+  const maxRatio=Math.min(window.devicePixelRatio || 1,1.6);
+  renderer.setPixelRatio(maxRatio);
+  let windowStart=0,frameCount=0,fastWindows=0;
+  function frameBudget(stamp,elapsed) {
+    if (!windowStart || elapsed>300 || elapsed<=0) {windowStart=stamp;frameCount=0;fastWindows=0;return;}
+    frameCount++;
+    if(stamp-windowStart<800)return;
+    const mean=(stamp-windowStart)/frameCount, ratio=renderer.getPixelRatio();
+    fastWindows=mean<18 ? fastWindows+1 : 0;
+    let next=ratio;
+    if(mean>25)next=Math.max(.6,ratio*(mean>40?.78:.90));
+    else if(fastWindows>=5){next=Math.min(maxRatio,ratio+.08);fastWindows=0;}
+    if(Math.abs(ratio-next)>.005)renderer.setPixelRatio(next);
+    frameCount=0;windowStart=stamp;
+  }
   scene.add(new T.HemisphereLight('#fff5ec', '#afbed2', 2.25));
   const sun = new T.DirectionalLight('#fff1da', 1.55);
   sun.position.set(-24, 38, 15);
@@ -421,6 +435,7 @@ export function createWorld(canvas, data) {
     structure,
     mechanisms,
     updateMechanisms,
+    frameBudget,
     first,
     dispose,
     scene,

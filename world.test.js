@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { gunzipSync } from 'node:zlib';
+import { arenaFinisher } from './arena-finisher.js';
 import { triangleTerrain } from './triangle-terrain.js';
 import { lanePaths, visionDistance } from './field-effects.js';
 import * as T from 'three';
@@ -17,6 +18,23 @@ import {
   rideStep,
 } from './mechanisms.js';
 import { launch, flight } from './utility.js';
+
+test('muzzle direction is measured in weapon space after socket rotation',()=>{
+  const grip=new T.Group(),gun=new T.Group(),tip=new T.Bone(),trigger=new T.Bone();
+  tip.name='Muzzle';trigger.name='Trigger';
+  grip.rotation.y=1.97;gun.rotation.y=-.81;grip.add(gun);gun.add(tip,trigger);
+  tip.position.x=-.8;trigger.position.x=-.09;
+  assert.equal(muzzleAtMinX(gun),true);
+  tip.position.x=.8;assert.equal(muzzleAtMinX(gun),false);
+});
+test('multipart finishers follow the match clock and release all scene objects',()=>{
+  for(const theme of ['singularityep9','champions2023','rogue','araxys','neptune']){
+    const scene=new T.Scene(),effect=arenaFinisher(scene,theme,{x:5,y:2,z:-4},10,4,'#a987ff');
+    assert.equal(effect.update(12.8),true);assert.equal(scene.children.length,1);
+    assert.deepEqual(scene.children[0].position.toArray(),[5,2,-4]);
+    assert.equal(effect.update(Infinity),false);assert.equal(scene.children.length,0);
+  }
+});
 import { muzzleAtMinX } from './skin-outline.js';
 import { iceRadius, onIce } from './terrain-feedback.js';
 import { recordedAction } from './recorded-weapon.js';
@@ -174,7 +192,8 @@ test('local sound clips and filmed muzzle flashes resolve for each referenced sk
   const baseShots = fs
     .readdirSync(new URL('./public/weapon-audio/', import.meta.url))
     .filter((name) => name.startsWith('base-') && name.endsWith('-shot.ogg'));
-  assert.equal(baseShots.length, 19);
+  const skins = JSON.parse(fs.readFileSync(new URL('./skins.json', import.meta.url)));
+  assert.deepEqual(baseShots.sort(),Object.keys(skins).filter(gun=>gun!=='melee').map(gun=>'base-'+gun+'-shot.ogg').sort());
   for (const name of baseShots)
     for (const action of ['shot', 'reload'])
       assert.equal(
@@ -191,7 +210,6 @@ test('local sound clips and filmed muzzle flashes resolve for each referenced sk
         .toString(),
       'OggS',
     );
-  const skins = JSON.parse(fs.readFileSync(new URL('./skins.json', import.meta.url)));
   for (const s of Object.values(skins)
     .flat()
     .filter((s) => s.performance)) {

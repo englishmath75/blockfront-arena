@@ -7,17 +7,9 @@ const ball = new T.SphereGeometry(0.5, 40, 28),
   block = new T.BoxGeometry(1, 1, 1);
 const vertex =
   'varying vec2 v; varying vec3 p; void main(){v=uv;p=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}';
-let wallFilm;
 function surface(color, kind) {
-  if (kind === 1 && !wallFilm) {
-    wallFilm = new T.TextureLoader().load('/effects/neon-wall.webp');
-    wallFilm.colorSpace = T.SRGBColorSpace;
-    wallFilm.generateMipmaps = false;
-    wallFilm.minFilter = T.LinearFilter;
-  }
   const uniforms = {
     t: { value: 0 },
-    film: { value: kind === 1 ? wallFilm : null },
     span: { value: 1 },
     opacity: { value: 1 },
     shade: { value: new T.Color(color) },
@@ -32,21 +24,30 @@ function surface(color, kind) {
     transparent: kind !== 0,
     depthWrite: kind === 0,
     fragmentShader: `
-varying vec2 v;varying vec3 p;uniform float t,opacity,kind,front,back;uniform vec3 shade;uniform sampler2D film;uniform float span;
+varying vec2 v;varying vec3 p;uniform float t,opacity,kind,front,back;uniform vec3 shade;uniform float span;
 float hash(vec3 pos){return fract(sin(dot(pos,vec3(43.81,57.13,13.71)))*45758.5453);}
 float noise(vec3 pos){vec3 i=floor(pos),f=fract(pos);f=f*f*(3.-2.*f);return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1)),f.x),f.y),f.z);}
 void main(){vec3 c=shade;float a=opacity;if(kind<.5){float n=noise(p*8.+vec3(t*.3,t*.24,-t*.4));float flow=sin(p.y*28.+n*5.+p.x*3.-t*2.);c=mix(shade*.56,shade*1.45+.015, .43+.34*n+.18*flow);c+=.12*pow(max(0.,flow),5.);}
 else if(kind<1.5){
   if(v.x>front||v.x<back)discard;
   float distanceAlong=v.x*span,distort=noise(vec3(distanceAlong*.45,v.y*1.8,t*.6));
-  float u=.02+.96*(1.-abs(mod(distanceAlong*.31+t*.12+distort*.14,2.)-1.));
-  float h=clamp(.06+.83*v.y+distort*.025,.02,.94);
-  float frame=floor(mod(t*12.,30.));frame=frame>15.?30.-frame:frame;
-  vec2 tile=vec2(mod(frame,4.),3.-floor(frame/4.));
-  c=texture2D(film,(tile+vec2(u,h))*.25).rgb;
-  c=mix(c,vec3(.72,.94,.32),.5*(1.-smoothstep(0.,.065,v.y)));
+  float x=distanceAlong*.82+distort*1.8;
+  float bolt=abs(fract(x+.22*sin(19.*v.y-t*6.+x)+.13*sin(37.*v.y+x*3.))-.5);
+  float arc=1.-smoothstep(.012,.075,bolt);
+  c=mix(vec3(.008,.09,.70),vec3(.015,.73,1.),clamp(.9-v.y*.62+distort*.26,0.,1.));
+  c+=arc*vec3(.24,.81,1.)*(.45+.55*distort);
+  c=mix(c,vec3(.72,1.,.17),1.-smoothstep(.015,.18+.12*distort,v.y));
   float top=.91+.09*noise(vec3(distanceAlong*.75,t*.8,4.));
   a*=1.-smoothstep(top-.025,top,v.y);
+}
+else if(kind>6.5){
+  float r=length(p.xz)*2., angular=atan(p.z,p.x);
+  float edge=1.-smoothstep(.018,.08,abs(.94-r));
+  float pulse=pow(.5+.5*cos(r*27.-t*6.),5.);
+  if(kind<7.5){float flame=noise(vec3(p.xz*19.,t*2.2));c=mix(shade*.56,vec3(1.,.76,.18),smoothstep(.35,.84,flame));a*=.76+.2*edge;}
+  else if(kind<8.5){c=shade*(.52+pulse*.6)+edge*vec3(.4,1.,.85);a*=.42+.36*edge+.19*pulse;}
+  else if(kind<9.5){float grid=pow(.5+.5*cos(angular*14.+r*13.-t*2.),9.);c=shade*(.6+grid)+edge*vec3(1.,.83,.48);a*=.45+.42*edge+.12*grid;}
+  else {float band=pow(.5+.5*cos(v.y*41.-t*8.),6.);c=shade*(.75+1.5*band);a*=.40+.50*band;}
 }
 else if(kind>4.5){
   float radius=length(p.xz)*2., angle=atan(p.z,p.x);
@@ -74,8 +75,9 @@ export function deviceMesh(type, color, w, h, d) {
   const smoke = ['smoke', 'cloud', 'darkCover', 'pit'].includes(type),
     lane = type === 'lane' || type === 'blaze' || type === 'tide',
     pulse = ['sonar', 'dronePulse', 'pulse'].includes(type);
+  const field={fire:7,slow:8,stimField:8,orbital:9,groundWave:10,agentPulse:10}[type];
   const mat =
-    type === 'mosh' || type === 'seize' ? surface(color,type === 'mosh' ? 5 : 6) : smoke || lane || pulse
+    field ? surface(color,field) : type === 'mosh' || type === 'seize' ? surface(color,type === 'mosh' ? 5 : 6) : smoke || lane || pulse
       ? surface(color, type === 'tide' ? 4 : type === 'blaze' ? 3 : lane ? 1 : pulse ? 2 : 0)
       : new T.MeshStandardMaterial({
           color,

@@ -671,7 +671,7 @@ input:not([type='range']):not([type='checkbox']) {
   }
 }
 
-.skin-loadout{display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin:1rem 0}.skin-loadout>img{object-fit:contain;width:min(38vw,260px);height:90px}.skin-loadout .field{flex:1;min-width:110px;margin:0}.skin-loadout select{width:100%}#performance-layer{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}
+.skin-loadout{display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin:1rem 0}.skin-loadout>img{object-fit:contain;width:min(38vw,260px);height:90px}.skin-loadout .field{flex:1;min-width:110px;margin:0}.skin-loadout select{width:100%}
 
 #killmark{position:absolute;bottom:14%;left:50%;transform:translateX(-50%);height:clamp(62px,13vh,126px);width:auto;pointer-events:none}
 .field-alert {display:table;margin:0 auto .45rem;padding:.35rem 1.05rem;background:#142632df;color:#b5fff1;letter-spacing:.12em;border-top:2px solid #85e9db}

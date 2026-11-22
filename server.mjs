@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import sirv from 'sirv';
 import { roomMiddleware } from './room-server.js';
 
-const files=sirv(fileURLToPath(new URL('./dist/',import.meta.url)),{maxAge:3600,setHeaders(res,path){
+const files=sirv(fileURLToPath(new URL('./dist/',import.meta.url)),{brotli:true,maxAge:3600,setHeaders(res,path){
   if(path.endsWith('.html')) res.setHeader('Cache-Control','no-cache');
 }});
 const rooms=roomMiddleware();

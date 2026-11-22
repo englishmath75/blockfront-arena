@@ -1,7 +1,10 @@
 import { fitSkinOutline, muzzleAtMinX } from './skin-outline.js';
-import { recordedAction, weaponFilm } from './recorded-weapon.js';
+import { recordedAction } from './recorded-weapon.js';
 import { motionAction, sampleMotion } from './weapon-motion.js';
 import { bindFingers } from './finger-pose.js';
+import { skinArticulation } from './skin-articulation.js';
+import { abilityProp } from './skill-prop.js';
+import { usesBow, bowPresentation } from './sova-bow.js';
 import { unpack } from './compressed.js';
 import * as T from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -120,6 +123,8 @@ export function attachProp(parent, slug, size) {
 }
 export function character(parent, name) {
   const ref = agents[name];
+  const gripRotation=new T.Quaternion(),bodyRotation=new T.Quaternion(),aimRotation=new T.Quaternion();
+  const aimEuler=new T.Euler(0,0,0,'XYZ');
   let mixer,
     body,
     left,
@@ -171,7 +176,7 @@ export function character(parent, name) {
         right = body.getObjectByName('R_Thigh');
       })
       .catch(() => {});
-  const animate = (time, stride, revealed = false, weaponKey, skin, attack) => {
+  const animate = (time, stride, revealed = false, weaponKey, skin, attack, pitch=0) => {
     const stamp = (weaponKey ?? '') + '/' + (skin?.profileKey ?? '');
     if (mixer) {
       if (grip && weaponKey && selected !== stamp) {
@@ -193,6 +198,8 @@ export function character(parent, name) {
               held = candidate;
               disposeHeld = release;
               held.rotation.y = Math.PI / 2;
+              if(held.getObjectByName('Muzzle') || held.getObjectByName('MuzzlePoint'))
+                held.userData.forwardYaw=muzzleAtMinX(held)?-Math.PI/2:Math.PI/2;
               grip.add(held);
             })
             .catch(() => {});
@@ -205,6 +212,11 @@ export function character(parent, name) {
         }
       }
       mixer.setTime(time);
+      if(held?.userData.forwardYaw!==undefined){
+        parent.getWorldQuaternion(bodyRotation);grip.getWorldQuaternion(gripRotation);
+        aimRotation.setFromEuler(aimEuler.set(pitch,held.userData.forwardYaw,0));
+        held.quaternion.copy(gripRotation.invert()).multiply(bodyRotation).multiply(aimRotation);
+      }
       if (held && attack?.weapon === 'melee') {
         const t = Math.max(0, Math.min(1, (time - attack.at) / (attack.alt ? 0.62 : 0.44)));
         held.rotation.z = (attack.alt ? 0.32 : 1.25) * Math.sin(t * Math.PI) * (attack.combo % 2 ? 1 : -1);
@@ -235,55 +247,34 @@ export const inspectLength = (gun, skin) =>
   2.6;
 async function applyAppearance(root, skin) {
   if (!library.skins[skin.id]) {
-    try {
-      return await fitSkinOutline(root, skin.image);
-    } catch {
-      return skinWrap(root, skin.image);
-    }
+    try {return await fitSkinOutline(root,skin.image,skin);}
+    catch (e) {console.warn('스킨 외형',skin.name,e.message);return;}
   }
-  if (skin.variant) return skinWrap(root, skin.image);
-}
-function skinWrap(root, image) {
-  const owned = [];
-  const map = texture(image);
-  root.updateMatrixWorld(true);
-  const inv = root.matrixWorld.clone().invert(), box = new T.Box3(), p = new T.Vector3();
-  const forward = muzzleAtMinX(root);
-  root.traverse(o => {
-    if (!o.isMesh || /bullet|reddot|shell|extra/i.test(o.name)) return;
-    const pos = o.geometry.getAttribute('position');
-    for (let i = 0; i < pos.count; i++)
-      box.expandByPoint(p.fromBufferAttribute(pos,i).applyMatrix4(o.matrixWorld).applyMatrix4(inv));
-  });
-  const size = box.getSize(new T.Vector3());
-  root.traverse((o) => {
-    if (!o.isMesh || /bullet|reddot|shell|extra/i.test(o.name)) return;
-    const g = o.geometry.clone(),
-      pos = g.getAttribute('position'),
-      uv = new Float32Array(pos.count * 2);
-    for (let i = 0; i < pos.count; i++) {
-      p.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld).applyMatrix4(inv);
-      const x = (p.x-box.min.x)/Math.max(.001,size.x);
-      uv[2 * i] = T.MathUtils.clamp(forward ? x : 1-x, 0.01, 0.99);
-      uv[2 * i + 1] = T.MathUtils.clamp(1 - (p.y - box.min.y) / Math.max(0.01, size.y), 0.04, 0.96);
-    }
-    g.setAttribute('uv', new T.BufferAttribute(uv, 2));
-    o.geometry = g;
-    const mat = o.material.clone();
-    mat.map = map;
-    mat.color.set(0xffffff);
-    mat.transparent = false;
-    mat.alphaTest = 0;
-    mat.needsUpdate = true;
-    o.material = mat;
-    owned.push([g, mat]);
-  });
-  return () => {
-    for (const [g, m] of owned) {
-      g.dispose();
-      m.dispose();
-    }
-  };
+  if (!skin.variant) return;
+  const lut = await texLoader.loadAsync('/models/chromas/'+skin.variant+'.png');
+  lut.flipY=false;
+  lut.generateMipmaps=false;
+  lut.minFilter=lut.magFilter=T.NearestFilter;
+  const materials=new Map();
+  function recolor(source){
+    if(!source.map)return source;
+    if(materials.has(source))return materials.get(source);
+    const material=source.clone();
+    material.onBeforeCompile=shader=>{
+      shader.uniforms.skinPalette={value:lut};
+      shader.fragmentShader='uniform sampler2D skinPalette;\n'+shader.fragmentShader.replace('#include <map_fragment>',`#include <map_fragment>
+        vec3 original=sRGBTransferOETF(diffuseColor).rgb;
+        vec3 bins=min(floor(original*16.),15.);
+        vec2 lookup=(vec2(bins.b,bins.r*16.+bins.g)+.5)/vec2(16.,256.);
+        vec3 delta=(texture2D(skinPalette,lookup).rgb-128./255.)*2.;
+        diffuseColor.rgb=sRGBTransferEOTF(vec4(clamp(original+delta,0.,1.),1.)).rgb;`);
+    };
+    material.customProgramCacheKey=()=>'weapon-chroma-v1';
+    materials.set(source,material);
+    return material;
+  }
+  root.traverse(mesh=>{if(mesh.isMesh)mesh.material=Array.isArray(mesh.material)?mesh.material.map(recolor):recolor(mesh.material)});
+  return ()=>{for(const m of materials.values())m.dispose();lut.dispose()};
 }
 const utilityItems = {
   '잠입 드론': 'stealth-drone',
@@ -329,22 +320,7 @@ const utilityItems = {
   '인도하는 빛': 'guiding-light-trinket',
   정찰자: 'trailblazer-trinket',
 };
-function magicOrb(color) {
-  const g = new T.Group(),
-    mat = new T.MeshBasicMaterial({ color, transparent: true, opacity: 0.86 });
-  g.add(new T.Mesh(new T.IcosahedronGeometry(0.065, 3), mat));
-  for (let i = 0; i < 2; i++) {
-    const ring = new T.Mesh(
-      new T.TorusGeometry(0.079 + i * 0.013, 0.0025, 6, 36),
-      new T.MeshBasicMaterial({ color: 0xe5fcff }),
-    );
-    ring.rotation.set(0.4 + i, 1 + i, 0.2);
-    g.add(ring);
-  }
-  return g;
-}
 export function firstPerson() {
-  const film = weaponFilm();
   const scene = new T.Scene(),
     cam = new T.PerspectiveCamera(48, 1, 0.007, 12);
   scene.add(new T.HemisphereLight(0xfff5ed, 0x879ab6, 2.5));
@@ -355,18 +331,29 @@ export function firstPerson() {
     state,
     clock = 0,
     ready = false;
-  function unload() {
-    if (state) {
-      scene.remove(state.rig);
-      state.armMixer.stopAllAction();
-      state.gunMixer.stopAllAction();
-      state.disposeSkin?.();
-    }
-    state = null;
-    ready = false;
+  const aimPoint = new T.Vector3();
+  const rack=new Map();
+  let generation=0;
+  function release(model) {
+    model.rig.removeFromParent();
+    model.armMixer.stopAllAction();
+    model.gunMixer.stopAllAction();
+    model.disposeSkin?.();
+    model.weapon.userData.release?.();
+    model.bow?.dispose();
+    if (model.spark.material.map !== glow()) model.spark.material.map?.dispose();
+    model.spark.material.dispose();
+    model.rig.traverse(o=>{if(o.isSkinnedMesh)o.skeleton.dispose()});
   }
   async function equip(agent, gun, skin, stamp, skill) {
-    unload();
+    const ticket=++generation;
+    if(state){state.rig.removeFromParent();rack.set(state.stamp,state);}
+    state=rack.get(stamp);
+    ready=!!state;
+    if(state){
+      rack.delete(stamp);state.equip=clock;scene.add(state.rig);return;
+    }
+    if(rack.size>3){const [key,old]=rack.entries().next().value;rack.delete(key);release(old);}
     const arm = agents[agent] + '-fp',
       item = utilityItems[skill] ?? abilityWeapons[gun],
       native = library.models[arm]?.gestures?.[item],
@@ -374,10 +361,12 @@ export function firstPerson() {
       spec = library.models[model];
     if (!spec) return;
     const fallback = library.models[gun]?.actions ?? library.models.vandal.actions,
-      poseKey = ['recon-bolt', 'shock-dart', 'hunters-fury'].includes(item) ? 'recon-bolt' : 'paintshell',
-      donor = poseKey === 'recon-bolt' ? 'sova-fp' : 'raze-fp',
+      poseKey = ['recon-bolt', 'shock-dart', 'hunters-fury'].includes(item) ? 'recon-bolt' :
+        ['브리치','바이퍼','브림스톤','테호'].includes(agent) ? 'snake-bite' :
+        ['네온','오멘','피닉스','세이지','하버','제트','아스트라','레이나','클로브'].includes(agent) ? 'baby-dizzy' : 'paintshell',
+      donor = {'recon-bolt':'sova-fp','snake-bite':'viper-fp','baby-dizzy':'gekko-fp','paintshell':'raze-fp'}[poseKey],
       gesture = native?.idle ? native : library.models[donor]?.gestures?.[poseKey];
-    const actions =
+    const actions = usesBow(skill) ? library.models.guardian.actions :
       (skill || ['blades', 'tour', 'headhunter'].includes(gun)) && gesture?.idle
         ? gesture
         : skin?.motionOn === false
@@ -400,19 +389,20 @@ export function firstPerson() {
       asset(reference),
       ...sources.map(asset),
     ]);
-    if (id !== stamp) return;
+    if (generation !== ticket) return;
     const rig = cloneRig(a.scene),
       weapon =
-        skill && !item
-          ? magicOrb(skill === '어둠의 장막' ? '#9f76ee' : skill === '추월 차선' ? '#6cf5ff' : '#70dcca')
+        skill && !library.models[item]
+          ? abilityProp(agent,skill)
           : cloneRig(g.scene);
     const disposeSkin = !skill && skin ? await applyAppearance(weapon, skin) : null;
-    if (id !== stamp) {
+    if (generation !== ticket) {
       disposeSkin?.();
+      weapon.userData.release?.();
       return;
     }
     const socket = rig.getObjectByName(spec.fp?.Bone ?? 'R_WeaponMaster');
-    if (!socket) return;
+    if (!socket) {disposeSkin?.();weapon.userData.release?.();return;}
     socket.add(weapon);
     const rot = spec.fp?.Rotation ?? { X: 0, Y: 90, Z: 0 };
     weapon.rotation.set(...[rot.X, rot.Y, rot.Z].map(T.MathUtils.degToRad));
@@ -430,7 +420,7 @@ export function firstPerson() {
           duration: h.duration,
         };
     }
-    if (!poses.idle) return;
+    if (!poses.idle) {disposeSkin?.();weapon.userData.release?.();return;}
     scene.add(rig);
     const eye = rig.getObjectByName('Camera'),
       muzzle = weapon.getObjectByName('MuzzlePoint') ?? weapon.getObjectByName('Muzzle');
@@ -442,7 +432,7 @@ export function firstPerson() {
         blending: T.AdditiveBlending,
       }),
     );
-    if (skin?.performance) {
+    if (!skill && skin?.performance) {
       spark.material.map = texture('/weapon-audio/' + skin.id + '-flash.png');
       spark.material.map = spark.material.map.clone();
       spark.material.map.repeat.x = 1 / 3;
@@ -455,7 +445,10 @@ export function firstPerson() {
       gun === 'blades'
         ? Array.from({ length: 5 }, (_, i) => weapon.getObjectByName('Knife' + (i + 1)))
         : null;
-    state = { rig, eye, spark, knives, disposeSkin, armMixer, gunMixer, poses, fingers: bindFingers(rig), name: '', equip: clock };
+    state = { stamp, rig, weapon, eye, muzzle, spark, knives, disposeSkin, armMixer, gunMixer, poses,
+      bow:usesBow(skill)?bowPresentation(rig,weapon,skill,eye):null,
+      articulation:skill ? null : skinArticulation(rig,weapon,skin,!!library.skins[skin?.id]),
+      fingers: bindFingers(rig), equip: clock };
     ready = true;
   }
   function pose(tag, ratio) {
@@ -476,7 +469,7 @@ export function firstPerson() {
     state.gunMixer.update(0);
   }
   return {
-    update(p, gun, skin, now, enabled, reloadSeconds, skill = '') {
+    update(p, gun, skin, now, enabled, reloadSeconds, skill = '', charge = 0) {
       clock = now;
       const stamp = [p.agent, gun, skin?.profileKey, skill].join('/');
       if (id !== stamp) {
@@ -484,10 +477,6 @@ export function firstPerson() {
         this.loading = equip(p.agent, gun, skin, stamp, skill).catch((e) =>
           console.warn('1인칭 모델', e.message),
         );
-      }
-      if (film.draw(skin, p, now, enabled && !skill, reloadSeconds)) {
-        this.visible = false;
-        return true;
       }
       this.visible = !!(ready && enabled);
       if (!this.visible) return false;
@@ -510,7 +499,7 @@ export function firstPerson() {
         const gesture =
           cast?.name === skill &&
           cast.end > now &&
-          [cast.alt && 'short throw', 'cast', 'throw', 'fire'].find((name) => state.poses[name]);
+          [cast.alt && 'short throw', 'cast', 'throw', 'fire','place'].find((name) => state.poses[name]);
         if (gesture) {
           tag = gesture;
           ratio = (now - cast.at) / Math.max(0.05, cast.end - cast.at);
@@ -535,18 +524,27 @@ export function firstPerson() {
         ratio = (now - state.equip) / equipSeconds;
       }
       state.fingers.restore();
+      state.articulation?.restore();
       pose(tag, T.MathUtils.clamp(ratio, 0, 1));
+      state.articulation?.update(tag,ratio,age);
       if (!skill && motionAction(skin, tag)) state.fingers.apply(skin, tag, ratio);
+      state.weapon.userData.animate?.(now,tag,ratio);
+      state.bow?.update(charge,tag,ratio);
+      if(state.weapon.userData.spareMagazine)state.weapon.userData.spareMagazine.visible=tag==='reload' && ratio>.12 && ratio<.82;
       if (state.knives) {
         const mag = p.kit.special?.mag ?? 0;
         state.knives.forEach((knife, i) => {
           if (knife) knife.visible = i >= 5 - mag;
         });
       }
-      state.rig.updateMatrixWorld(true);
       if (state.eye) state.eye.getWorldPosition(cam.position);
       else cam.position.set(0, 1.5, 0);
       cam.lookAt(cam.position.x + 1, cam.position.y, cam.position.z);
+      if(p.ads && !skill && state.muzzle && tag!=='reload' && tag!=='inspect'){
+        state.muzzle.getWorldPosition(aimPoint);
+        cam.position.z=aimPoint.z;
+        cam.position.y=aimPoint.y+.045;
+      }
       const sample = !skill && sampleMotion(motionAction(skin, tag), ratio);
       if (sample) {
         // The capture measures the foreground relative to the playfield. Move the first-person
@@ -557,7 +555,7 @@ export function firstPerson() {
       }
       cam.fov = p.ads ? 37 : 48;
       state.spark.visible = !skill && !['melee', 'blades'].includes(gun) && age >= 0 && age < 0.072;
-      if (skin?.performance && state.spark.material.map)
+      if (!skill && skin?.performance && state.spark.material.map)
         state.spark.material.map.offset.x = Math.min(2, Math.floor(age / 0.024)) / 3;
       return true;
     },
@@ -572,8 +570,10 @@ export function firstPerson() {
     },
     dispose() {
       id = '';
-      film.hide();
-      unload();
+      generation++;
+      if(state)release(state);
+      for(const old of rack.values())release(old);
+      rack.clear();state=null;ready=false;this.visible=false;
     },
     scene,
     cam,
