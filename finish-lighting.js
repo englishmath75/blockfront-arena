@@ -1,6 +1,7 @@
 import * as T from 'three';
 
 const disk = new T.PlaneGeometry(1,1);
+const decoded = new Map();
 let tracks,loading;
 export function prepareFinishLighting() {
   return loading??=import('./finish-light.json',{with:{type:'json'}})
@@ -25,9 +26,13 @@ export function finishLighting(scene, point, family, sequence) {
   return {
     update(age){
       if(!bytes){
-        const encoded=tracks?.[family];
-        if(!encoded)return;
-        bytes=Uint8Array.from(atob(encoded),c=>c.charCodeAt(0));
+        bytes=decoded.get(family);
+        if(!bytes){
+          const encoded=tracks?.[family];
+          if(!encoded)return;
+          bytes=Uint8Array.from(atob(encoded),c=>c.charCodeAt(0));
+          decoded.set(family,bytes);
+        }
       }
       const time=Math.min(sequence.frames-1,Math.max(0,age*sequence.fps));
       const a=Math.floor(time)*7,b=Math.min(bytes.length-7,a+7),mix=time%1;

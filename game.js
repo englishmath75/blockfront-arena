@@ -588,6 +588,7 @@ function buildMatch(roster) {
   match = {
     players,
     player: players.find((p) => p.local),
+    awaitingLoad: Boolean(roster),
     attack: 'blue',
     round: 0,
     score: { blue: 0, amber: 0 },
@@ -2790,6 +2791,10 @@ function command(kind, value) {
 }
 function step(dt) {
   if (!match || (practice() && paused)) return;
+  if (match.awaitingLoad) {
+    if (isGuest() || !match.players.every(p => p.sceneReady)) return;
+    match.awaitingLoad = false;
+  }
   now += dt;
   world.setClock(now);
   world.clearEffects(now);
@@ -3742,7 +3747,7 @@ function drawHud() {
           ' · ' +
           (isAttack(p) ? '공격' : '수비') +
           ' · ' +
-          phaseNames[match.phase]) +
+          (match.awaitingLoad ? '플레이어 전장 로딩 중' : phaseNames[match.phase])) +
       '</span>',
   );
   match.feed = match.feed.filter((e) => e.end > now).slice(-4);
@@ -4159,6 +4164,7 @@ function roomEvent(type, data) {
       ads: !!i.ads,
       fire: !!i.fire,
     });
+    if (i.sceneReady !== false) p.sceneReady = true;
     p.skinId = typeof i.skinId === 'string' && i.skinId.length === 36 ? i.skinId : null;
     p.skinLevel = Number.isInteger(i.skinLevel) ? i.skinLevel : undefined;
     p.skinVariant = typeof i.skinVariant === 'string' ? i.skinVariant : null;
@@ -4249,6 +4255,7 @@ async function load(roster) {
   await nextFrame();
   if (token !== transition) return;
   paused = practice();
+  p.sceneReady = true;
   unlocked = false;
   show('ready');
 }
@@ -4283,6 +4290,7 @@ function snapshot() {
   const { carrier, actor, ...core } = match.core;
   return {
     revision: ++revision,
+    awaitingLoad: match.awaitingLoad,
     now,
     round: match.round,
     score: match.score,
@@ -4365,6 +4373,7 @@ function receiveState(s) {
         });
     });
   lastRevision = s.revision;
+  match.awaitingLoad = s.awaitingLoad === true;
   match.arrows = Array.isArray(s.arrows)
     ? s.arrows.slice(0, 96).filter((a) => a && [a.x, a.y, a.z].every(Number.isFinite))
     : [];
@@ -4458,6 +4467,7 @@ function networkFrame(time) {
     ? { state: snapshot() }
     : {
         input: {
+          sceneReady: match.player.sceneReady === true,
           keys: [...keys],
           yaw: match.player.yaw,
           pitch: match.player.pitch,
