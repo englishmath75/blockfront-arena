@@ -19,6 +19,18 @@ import joints from './finger-motion.json' with { type: 'json' };
 import { castField, tickField } from './agent-fields.js';
 import { createZone, tickZone, shieldHit } from './ability-zones.js';
 import { Ray, Vector3 } from 'three';
+import { PlayerRoom } from './room-client.js';
+
+test('a client becomes host only after the join response identifies its player', () => {
+  const client = new PlayerRoom(() => {});
+  assert.equal(client.host, false);
+  client.room = {host: 'first'};
+  assert.equal(client.host, false);
+  client.id = 'first';
+  assert.equal(client.host, true);
+  client.room.host = 'second';
+  assert.equal(client.host, false);
+});
 
 test('showcase actions unlock at their recorded level and every referenced frame and sound exists', () => {
   const exists = (path) => fs.existsSync(new URL('./public/' + path, import.meta.url));

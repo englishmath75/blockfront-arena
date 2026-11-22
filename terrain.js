@@ -9,7 +9,7 @@ export async function loadTerrain(name, compact=false) {
   if (!map) return null;
   if (loaded?.name === name && loaded.compact===compact) return loaded.data;
   async function read(ext) {
-    const response = await fetch('/terrain/' + map.slug + ext);
+    const response = await fetch('/terrain/' + map.slug + ext + (ext === '.compact.gz' ? '?v=2' : ''));
     if (!response.ok) throw Error(name + ' 전장 파일을 열 수 없습니다.');
     return ['.scene.gz','.compact.gz'].includes(ext)?readScene(response):ext==='.tri.gz'?unpack(response):response.arrayBuffer();
   }

@@ -45,6 +45,6 @@ export class PlayerRoom {
     }
   }
   get host() {
-    return this.id === this.room?.host;
+    return this.room != null && this.id != null && this.id === this.room.host;
   }
 }
