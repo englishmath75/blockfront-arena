@@ -21,21 +21,23 @@ export function staticView(renderer,scene,camera,scenery,sky) {
   const quad=new T.Mesh(new T.PlaneGeometry(2,2),material);
   quad.frustumCulled=false;copyScene.add(quad);
   const clip=new T.Matrix4(), previous=new T.Matrix4(), size=new T.Vector2();
-  let ready=false, fogNear=-1, fogFar=-1, fogColor=-1,activeLast=false;
+  let ready=false, fogNear=-1, fogFar=-1, fogColor=-1;
   return {
     draw(animatedSurface){
+      if(animatedSurface){
+        ready=false;
+        renderer.render(scene,camera);
+        return;
+      }
       camera.updateMatrixWorld();
       clip.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);
       renderer.getDrawingBufferSize(size);
       const color=scene.fog.color.getHex();
-      const changed=animatedSurface || activeLast || !previous.equals(clip) || fogNear!==scene.fog.near ||
+      const changed=!previous.equals(clip) || fogNear!==scene.fog.near ||
         fogFar!==scene.fog.far || fogColor!==color || size.x!==target.width || size.y!==target.height;
-      activeLast=animatedSurface;
       if(changed){
         ready=false;previous.copy(clip);fogNear=scene.fog.near;fogFar=scene.fog.far;fogColor=color;
         if(size.x!==target.width || size.y!==target.height)target.setSize(size.x,size.y);
-        renderer.render(scene,camera);
-        return;
       }
       const mask=camera.layers.mask, background=scene.background, clear=renderer.autoClear;
       try{
