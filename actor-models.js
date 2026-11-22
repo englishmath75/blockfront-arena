@@ -102,13 +102,18 @@ function asset(id) {
   if (files.size > 24) files.delete(files.keys().next().value);
   return result;
 }
+const propBounds=new WeakMap();
+function boundsFor(g,model) {
+  if(!propBounds.has(g))propBounds.set(g,new T.Box3().setFromObject(model,true));
+  return propBounds.get(g);
+}
 export function attachProp(parent, slug, size) {
   if (!library.models[slug]) return;
-  void asset(slug)
+  return asset(slug)
     .then((g) => {
       if (!parent.parent) return;
       const model = cloneRig(g.scene),
-        b = new T.Box3().setFromObject(model, true),
+        b = boundsFor(g,model),
         s = b.getSize(new T.Vector3()),
         k = size / Math.max(s.x, s.y, s.z, 0.001);
       model.scale.multiplyScalar(k);
@@ -136,8 +141,9 @@ export function character(parent, name) {
     disposeHeld,
     outlined = false;
   const parts = [];
+  let ready;
   if (ref)
-    void asset(ref)
+    ready=asset(ref)
       .then((g) => {
         if (!parent.parent) return;
         body = cloneRig(g.scene);
@@ -162,7 +168,7 @@ export function character(parent, name) {
           animation.play();
           mixer.update(0.001);
         }
-        const b = new T.Box3().setFromObject(body, true),
+        const b = boundsFor(g,body),
           size = b.getSize(new T.Vector3()),
           k = 1.76 / Math.max(0.5, size.y),
           ctr = b.getCenter(new T.Vector3());
@@ -236,6 +242,7 @@ export function character(parent, name) {
     mixer?.stopAllAction();
     for (const row of parts) for (const glow of [row.glow].flat()) glow.dispose();
   };
+  animate.ready=ready;
   return animate;
 }
 const abilityWeapons = { blades: 'blade-storm', headhunter: 'headhunter', tour: 'tour-de-force' };
@@ -447,7 +454,7 @@ export function firstPerson() {
         : null;
     state = { stamp, rig, weapon, eye, muzzle, spark, knives, disposeSkin, armMixer, gunMixer, poses,
       bow:usesBow(skill)?bowPresentation(rig,weapon,skill,eye):null,
-      articulation:skill ? null : skinArticulation(rig,weapon,skin,!!library.skins[skin?.id]),
+      articulation:skill ? null : skinArticulation(rig,weapon,gun,skin,actions,fallback),
       fingers: bindFingers(rig), equip: clock };
     ready = true;
   }
@@ -527,7 +534,8 @@ export function firstPerson() {
       state.articulation?.restore();
       pose(tag, T.MathUtils.clamp(ratio, 0, 1));
       state.articulation?.update(tag,ratio,age);
-      if (!skill && motionAction(skin, tag)) state.fingers.apply(skin, tag, ratio);
+      if (!skill && skin?.motionOn && (motionAction(skin,tag) || recordedAction(skin,tag)))
+        state.fingers.apply(skin, tag, ratio);
       state.weapon.userData.animate?.(now,tag,ratio);
       state.bow?.update(charge,tag,ratio);
       if(state.weapon.userData.spareMagazine)state.weapon.userData.spareMagazine.visible=tag==='reload' && ratio>.12 && ratio<.82;

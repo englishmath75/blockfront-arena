@@ -1,16 +1,23 @@
-import { Vector4 } from 'three';
+import { Vector4, TextureLoader, RepeatWrapping } from 'three';
+
+let facets;
 
 // Evaluate pulses on the actual rendered surfaces, including instanced doors and rafters.
 export function terrainFeedback(scene) {
-  const slots = () => ({ value: Array.from({length:4}, () => new Vector4(0,0,0,-1)) });
+  const slots = () => ({ value: Array.from({length:32}, () => new Vector4()) });
   const scans=slots(), ice=slots(), clock={value:0}, materials=new Set();
+  const scanCount={value:0}, iceCount={value:0};
+  if(!facets){
+    facets=new TextureLoader().load('/effects/ice-facets.png');
+    facets.wrapS=facets.wrapT=RepeatWrapping;
+  }
   scene.traverse(o => { if(o.isMesh) for(const m of [o.material].flat()) if(m&&!m.isShaderMaterial) materials.add(m); });
   for(const material of materials) {
     const prior = material.onBeforeCompile.bind(material), key=material.customProgramCacheKey();
     material.customProgramCacheKey=()=>key+'-terrain-feedback-v1';
     material.onBeforeCompile=(shader,renderer)=>{
       prior(shader,renderer);
-      Object.assign(shader.uniforms,{scanFields:scans,iceFields:ice,fieldClock:clock});
+      Object.assign(shader.uniforms,{scanFields:scans,iceFields:ice,fieldClock:clock,scanCount,iceCount,iceFacet:{value:facets}});
       shader.vertexShader='varying vec3 fieldWorld;\n'+shader.vertexShader.replace('#include <project_vertex>',`#include <project_vertex>
         vec4 fieldPoint=vec4(transformed,1.);
         #ifdef USE_BATCHING
@@ -21,27 +28,25 @@ export function terrainFeedback(scene) {
         #endif
         fieldWorld=(modelMatrix*fieldPoint).xyz;`);
       shader.fragmentShader=`varying vec3 fieldWorld;
-        uniform vec4 scanFields[4],iceFields[4]; uniform float fieldClock;
-        vec2 iceSeed(vec2 q){ return fract(sin(vec2(dot(q,vec2(127.1,311.7)),dot(q,vec2(269.5,183.3))))*43758.5453); }
+        uniform vec4 scanFields[32],iceFields[32]; uniform int scanCount,iceCount;
+        uniform float fieldClock; uniform sampler2D iceFacet;
         \n`+shader.fragmentShader.replace('#include <opaque_fragment>',`
-        for(int i=0;i<4;i++){
+        for(int i=0;i<iceCount;i++){
           vec4 zone=iceFields[i]; vec2 local=fieldWorld.xz-zone.xz;
           if(zone.w>0. && abs(fieldWorld.y-zone.y)<.78 && length(local)<zone.w){
             float coverage=smoothstep(0.,.42,zone.w-length(local))* (1.-smoothstep(.45,.78,abs(fieldWorld.y-zone.y)));
-            vec2 tile=local*1.58,base=floor(tile),f=fract(tile); float near1=9.,near2=9.,facet=0.;
-            for(int j=-1;j<=1;j++) for(int k=-1;k<=1;k++){
-              vec2 idx=vec2(float(j),float(k)),seed=iceSeed(base+idx);
-              float v=length(idx+.15+.7*seed-f);
-              if(v<near1){near2=near1;near1=v;facet=seed.x;} else near2=min(near2,v);
-            }
-            float crack=1.-smoothstep(.013,.085,near2-near1);
+            vec2 crystalSample=texture2D(iceFacet,local*(1.58/8.)).rg;
+            float facet=crystalSample.r,crack=crystalSample.g;
             float sheen=pow(max(0.,cos(local.x*1.4+local.y*.8-fieldClock*1.6)),16.);
             vec3 crystal=mix(vec3(.018,.19,.25),vec3(.10,.77,.68),facet)+crack*vec3(.39,.91,.79)+.18*sheen;
             outgoingLight=mix(outgoingLight,crystal,.78*coverage);
           }
+        }
+        for(int i=0;i<scanCount;i++){
           vec4 wave=scanFields[i];
           if(wave.w>=0.){
             float depth=wave.w-distance(fieldWorld,wave.xyz);
+            if(depth<-.39 || depth>5.)continue;
             float line=(1.-smoothstep(.02,.30,abs(depth)))+.42*(1.-smoothstep(.04,.38,abs(depth-1.1)));
             float grid=pow(max(0.,cos(fieldWorld.x*7.)*cos(fieldWorld.z*7.)),6.);
             float trail=step(0.,depth)*exp(-max(0.,depth)*1.8);
@@ -55,11 +60,11 @@ export function terrainFeedback(scene) {
     clock.value=now;let a=0,b=0;
     for(const d of devices) {
       if(d.end<=now)continue;
-      if(d.type==='reconWave' && a<4) scans.value[a++].set(d.x,d.y,d.z,Math.min(30,(now-d.born)*48));
-      if(d.type==='ice' && b<4) ice.value[b++].set(d.x,d.y,d.z,iceRadius(d,now));
+      if(d.type==='reconWave' && a<scans.value.length) scans.value[a++].set(d.x,d.y,d.z,Math.min(30,(now-d.born)*48));
+      if(d.type==='ice' && b<ice.value.length) ice.value[b++].set(d.x,d.y,d.z,iceRadius(d,now));
     }
-    while(a<4)scans.value[a++].w=-1;
-    while(b<4)ice.value[b++].w=-1;
+    scanCount.value=a;
+    iceCount.value=b;
   };
 }
 

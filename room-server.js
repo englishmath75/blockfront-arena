@@ -16,6 +16,20 @@ export function roomMiddleware() {
   });
   const emit = (p, type, data) =>
     p.stream?.write('event: ' + type + '\ndata: ' + JSON.stringify(data) + '\n\n');
+  function sendState(member, frame) {
+    const stream=member.stream;
+    if(!stream)return;
+    if(member.waitDrain){member.latest=frame;return}
+    if(stream.write(frame))return;
+    member.waitDrain=true;
+    stream.once('drain',()=>{
+      if(member.stream!==stream)return;
+      member.waitDrain=false;
+      const latest=member.latest;
+      member.latest=null;
+      if(latest)sendState(member,latest);
+    });
+  }
   const all = (room, type, data) => room.members.forEach((p) => emit(p, type, data));
   function leave(room, p) {
     room.members.delete(p.token);
@@ -53,7 +67,7 @@ export function roomMiddleware() {
           parts = [];
         for await (const part of req) {
           size += part.length;
-          if (size > 120000) return reply(413, { error: '메시지가 너무 큽니다.' });
+          if (size > (action==='state'?524288:120000)) return reply(413, { error: '메시지가 너무 큽니다.' });
           parts.push(part);
         }
         data = JSON.parse(Buffer.concat(parts).toString() || '{}');
@@ -106,12 +120,16 @@ export function roomMiddleware() {
       if (action === 'events') {
         p.stream?.end();
         p.stream = res;
+        p.waitDrain=false;
+        p.latest=null;
         res.writeHead(200, {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
           'X-Accel-Buffering': 'no',
         });
+        res.write('retry: 600\n\n');
         all(room, 'room', view(room));
+        if(room.lastState && p.id!==room.host)sendState(p,room.lastState);
         const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 20000);
         heartbeat.unref();
         res.on('close', () => {
@@ -121,7 +139,7 @@ export function roomMiddleware() {
             if(!room.started)all(room,'room',view(room));
             setTimeout(() => {
               if (!p.stream && room.members.has(p.token)) leave(room, p);
-            }, 3000).unref();
+            }, 12000).unref();
           }
         });
         if (room.queue && room.members.size === 10 && [...room.members.values()].every((m) => m.stream)) {
@@ -145,8 +163,9 @@ export function roomMiddleware() {
         const host = [...room.members.values()].find((m) => m.id === room.host);
         emit(host, 'input', { from: p.id, input: data.input });
       } else if (action === 'state' && room.started && p.id === room.host) {
+        room.lastState='event: state\ndata: '+JSON.stringify(data.state)+'\n\n';
         room.members.forEach((m) => {
-          if (m.id !== p.id) emit(m, 'state', data.state);
+          if (m.id !== p.id) sendState(m,room.lastState);
         });
       } else return reply(400, { error: '요청을 처리할 수 없습니다.' });
       return reply(200, { ok: true });

@@ -5,7 +5,7 @@ export const usesBow = (name) => bowSkills.has(name);
 
 // Aim the character's own arm chain towards two viewmodel sockets. All
 // coordinates are in the first-person scene; gameplay/projectiles are separate.
-function reachArm(rig, side) {
+export function reachArm(rig, side, followElbow=false) {
   const [upper, lower, hand] = ['Shoulder', 'Elbow', 'Hand'].map((n) => rig.getObjectByName(side + '_' + n));
   if (!upper || !lower || !hand) return () => {};
   const origin = new T.Vector3(),
@@ -37,7 +37,8 @@ function reachArm(rig, side) {
     axis.subVectors(target, origin);
     const d = T.MathUtils.clamp(axis.length(), Math.abs(l1 - l2) + 0.0001, l1 + l2 - 0.0001);
     axis.normalize();
-    pole.set(-0.24, -0.85, side === 'L' ? -0.7 : 0.7);
+    if(followElbow)pole.subVectors(mid,origin);
+    else pole.set(-0.24, -0.85, side === 'L' ? -0.7 : 0.7);
     pole.addScaledVector(axis, -pole.dot(axis)).normalize();
     const along = (l1 * l1 + d * d - l2 * l2) / (2 * d);
     goal

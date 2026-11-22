@@ -4,18 +4,18 @@ import { MAP_NAME, MAPS, CELL, HALF, SIZE, open, isCover, center, cell, areas } 
 import {readScene} from './scenery.js';
 import {TextureLoader} from 'three';
 let loaded;
-export async function loadTerrain(name) {
+export async function loadTerrain(name, compact=false) {
   const map = MAPS.find((m) => m.name === name);
   if (!map) return null;
-  if (loaded?.name === name) return loaded.data;
+  if (loaded?.name === name && loaded.compact===compact) return loaded.data;
   async function read(ext) {
     const response = await fetch('/terrain/' + map.slug + ext);
     if (!response.ok) throw Error(name + ' 전장 파일을 열 수 없습니다.');
-    return ext==='.scene.gz'?readScene(response):ext==='.tri.gz'?unpack(response):response.arrayBuffer();
+    return ['.scene.gz','.compact.gz'].includes(ext)?readScene(response):ext==='.tri.gz'?unpack(response):response.arrayBuffer();
   }
-  const [collision, visual,texture,triangles] = await Promise.all([read('.vxb'), read('.scene.gz'),new TextureLoader().loadAsync('/terrain/'+map.slug+'.webp'),read('.tri.gz')]);
+  const [collision, visual,texture,triangles] = await Promise.all([read('.vxb'), read(compact?'.compact.gz':'.scene.gz'),new TextureLoader().loadAsync('/terrain/'+map.slug+'.webp'),read('.tri.gz')]);
   const data = { collision, visual,texture,triangles };
-  loaded = { name, data };
+  loaded = { name, compact, data };
   return data;
 }
 export const keyOf = (n) => n.sector + ' ' + n.name;

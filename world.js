@@ -2,6 +2,7 @@ import { triangleTerrain } from './triangle-terrain.js';
 import { terrainFeedback } from './terrain-feedback.js';
 import { visionDistance } from './field-effects.js';
 import { drawScenery } from './scenery.js';
+import { staticView } from './static-view.js';
 import { buildTerrain } from './terrain.js';
 import { makeMechanisms, geometry, switchPos, cable, inside } from './mechanisms.js';
 import * as T from 'three';
@@ -24,6 +25,11 @@ function mesh(mat, x, y, z, w, h, d) {
 }
 function pixelTexture(colors) {
   return new T.MeshStandardMaterial({ color: colors[1], roughness: 0.85 });
+}
+export function softwareGraphics(canvas) {
+  const gl=canvas.getContext('webgl2',{antialias:true,alpha:false,powerPreference:'high-performance'});
+  const debug=gl?.getExtension('WEBGL_debug_renderer_info');
+  return !!debug && /swiftshader|llvmpipe|software rasterizer/i.test(gl.getParameter(debug.UNMASKED_RENDERER_WEBGL));
 }
 export function createWorld(canvas, data) {
   const scene = new T.Scene();
@@ -54,11 +60,14 @@ export function createWorld(canvas, data) {
   scene.add(sky);
 
   const renderer = new T.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-  const maxRatio=Math.min(window.devicePixelRatio || 1,1.6);
+  const software=softwareGraphics(canvas);
+  const maxRatio=software ? .65 : Math.min(window.devicePixelRatio || 1,1.6);
+  const fieldMaterials=[];
   renderer.setPixelRatio(maxRatio);
   let windowStart=0,frameCount=0,fastWindows=0;
   function frameBudget(stamp,elapsed) {
-    if (!windowStart || elapsed>300 || elapsed<=0) {windowStart=stamp;frameCount=0;fastWindows=0;return;}
+    if(software)return;
+    if (!windowStart || elapsed<=0) {windowStart=stamp;frameCount=0;fastWindows=0;return;}
     frameCount++;
     if(stamp-windowStart<800)return;
     const mean=(stamp-windowStart)/frameCount, ratio=renderer.getPixelRatio();
@@ -118,7 +127,8 @@ export function createWorld(canvas, data) {
 
   const roof = tint('#a66b50', true),
     metal = tint('#667881', true);
-  if (data?.visual) drawScenery(scene, data.visual, data.texture);
+  let scenery;
+  if (data?.visual) scenery=drawScenery(scene,data.visual,data.texture,software || !renderer.extensions.has('WEBGL_multi_draw'));
   else
     for (const b of structure.boxes) {
       const mat =
@@ -224,6 +234,7 @@ export function createWorld(canvas, data) {
     scene.add(group);
   }
   const updateTerrainFeedback = terrainFeedback(scene);
+  const cachedView=software && scenery ? staticView(renderer,scene,camera,scenery,sky) : null;
   const dark = material('#263432');
   const strap = material('#344c3d');
   const trim = material('#99b78a');
@@ -412,6 +423,8 @@ export function createWorld(canvas, data) {
     return ray.ray;
   }
   function dispose() {
+    cachedView?.dispose();
+    for(const material of fieldMaterials)material.dispose();
     first.dispose();
     window.removeEventListener('resize', resize);
     const materials = new Set(),
@@ -436,11 +449,16 @@ export function createWorld(canvas, data) {
     mechanisms,
     updateMechanisms,
     frameBudget,
+    fieldMaterials,
     first,
     dispose,
     scene,
     camera,
     renderer,
+    renderWorld(animatedSurface){
+      if(cachedView)cachedView.draw(animatedSurface);
+      else renderer.render(scene,camera);
+    },
     tool,
     trim,
     flash,

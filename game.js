@@ -10,7 +10,7 @@ import { skinProfile } from './skin-levels.js';
 import { alternateAttack, shotPattern, meleeDamage } from './attacks.js';
 import { recordedEffect, playHandling } from './skin-performance.js';
 import timing from './ability-times.json' with { type: 'json' };
-import { deviceMesh, drawDevice, lanePaths } from './field-effects.js';
+import { deviceMesh, drawDevice, lanePaths, warmFieldMaterials } from './field-effects.js';
 import { modelKey, inspectLength, attachProp } from './actor-models.js';
 import { heldSkill } from './held-skill.js';
 import {
@@ -53,7 +53,7 @@ import {
   cable,
 } from './mechanisms.js';
 import * as T from 'three';
-import { createWorld } from './world.js';
+import { createWorld, softwareGraphics } from './world.js';
 import {
   areas,
   HALF,
@@ -149,9 +149,7 @@ let mapProgress = 0,
   buffer,
   notice = '',
   ads = false;
-let sending = false,
-  netAt = 0,
-  lastRevision = -1,
+let lastRevision = -1,
   revision = 0,
   sequence = 0;
 let armedSkill = null,
@@ -201,7 +199,8 @@ let queuedActions = [],
 const isGuest = () => mode === 'match' && room && !room.host;
 function dispatch(kind, value) {
   if (!isGuest()) return false;
-  queuedActions.push({ kind, value });
+  room.actionId=(room.actionId??0)+1;
+  queuedActions.push({ kind, value, id:room.actionId });
   return true;
 }
 const practice = () => mode === 'range' || mode === 'tour';
@@ -1364,7 +1363,7 @@ function channel(dt) {
   clearChannel();
 }
 function addDevice(type, x, z, team, duration, w, d, h, color, owner, baseY) {
-  const support = floorAt(x, z, (owner?.y ?? 0) + 2);
+  const support = baseY ?? floorAt(x, z, (owner?.y ?? 0) + 2);
   const y = baseY ?? (Number.isFinite(support) ? support : (owner?.y ?? 0));
   const mesh = deviceMesh(type, color, w, h, d);
   mesh.position.set(x, y + h / 2, z);
@@ -3459,8 +3458,9 @@ function drawWorld(realTime) {
       prepareBase(audio, gun, 'reload');
     }
     const skin = currentSkin(watch);
-    if (world.skinId !== skin?.profileKey) {
+    if (world.skinId !== skin?.profileKey || world.skinAudio !== audio) {
       world.skinId = skin?.profileKey;
+      world.skinAudio = audio;
       prepareSkin(skin,audio);
     }
     world.animation ??= weaponAnimation(world);
@@ -3549,7 +3549,7 @@ function drawWorld(realTime) {
     core.rotation.y = now * 0.7;
   }
   camera.updateProjectionMatrix();
-  world.renderer.render(world.scene, camera);
+  world.renderWorld(match?.devices.some(d=>d.type==='ice' || d.type==='reconWave')??false);
   if (match) world.first.render(world.renderer, camera.aspect);
 }
 
@@ -4165,7 +4165,11 @@ function roomEvent(type, data) {
     p.family = currentSkin(p)?.family ?? null;
     p.yaw = i.yaw;
     p.pitch = i.pitch;
-    for (const a of (Array.isArray(i.actions) ? i.actions : []).slice(0, 24)) applyAction(p, a);
+    for (const a of (Array.isArray(i.actions) ? i.actions : []).slice(0,24)) {
+      if(!a || (Number.isSafeInteger(a.id) && a.id<=(p.lastInputAction??0)))continue;
+      applyAction(p,a);
+      if(Number.isSafeInteger(a.id))p.lastInputAction=a.id;
+    }
   }
 }
 async function enterRoom() {
@@ -4210,7 +4214,7 @@ async function load(roster) {
   if (token !== transition) return;
   let data;
   try {
-    data = await loadTerrain(map);
+    data = await loadTerrain(map,softwareGraphics(canvas));
   } catch (error) {
     if (token === transition) {
       home();
@@ -4233,11 +4237,15 @@ async function load(roster) {
   world.first.update(p, heldWeapon(p).id, currentSkin(p), now, true, weaponFor(p).reload);
   const loadedWorld=world;
   await Promise.all([
-    loadedWorld.renderer.compileAsync(loadedWorld.scene,loadedWorld.camera),
+    Promise.all(match.players.map(p=>p.model?.animate?.ready)).then(()=>{
+      if(token===transition)return loadedWorld.renderer.compileAsync(loadedWorld.scene,loadedWorld.camera);
+    }),
+    warmFieldMaterials(loadedWorld),
     loadedWorld.first.loading.then(()=>{
       if(token===transition)return loadedWorld.renderer.compileAsync(loadedWorld.first.scene,loadedWorld.first.cam);
     })
   ]);
+  if(token===transition)drawWorld(performance.now());
   await nextFrame();
   if (token !== transition) return;
   paused = practice();
@@ -4249,6 +4257,7 @@ const stateKeys =
     ' ',
   );
 stateKeys.push(
+  'lastInputAction',
   'scannedUntil','iceUntil','stepSurface','tether','tag','hinderedUntil','slowUntil','hasteUntil','reloadDuration',
   'lastCast',
   'jammedUntil',
@@ -4308,7 +4317,7 @@ function receiveState(s) {
     !Array.isArray(s.players) ||
     s.players.length > 10 ||
     !Array.isArray(s.devices) ||
-    s.devices.length > 128 ||
+    s.devices.length > 1024 ||
     !Array.isArray(s.feed) ||
     !s.core
   )
@@ -4381,6 +4390,11 @@ function receiveState(s) {
       reloadPrev = p.reloading,
       killsPrev = p.kills;
     for (const k of stateKeys) if (entry[k] !== undefined) p[k] = entry[k];
+    if(p.local && queuedActions.length && Number.isSafeInteger(entry.lastInputAction)){
+      let consumed=0;
+      while(consumed<queuedActions.length && queuedActions[consumed].id<=entry.lastInputAction)consumed++;
+      if(consumed)queuedActions.splice(0,consumed);
+    }
     if (p.local && !newRound) {
       p.yaw = yaw;
       p.pitch = pitch;
@@ -4410,6 +4424,7 @@ function receiveState(s) {
     carrier: match.players.find((p) => p.id === s.core.carrier),
     actor: match.players.find((p) => p.id === s.core.actor),
   };
+  const existing = new Map(match.devices.map(d=>[d.id,d]));
   const present = new Set(s.devices.map((d) => d.id));
   match.devices = match.devices.filter((d) => {
     if (present.has(d.id)) return true;
@@ -4417,7 +4432,7 @@ function receiveState(s) {
     return false;
   });
   for (const d of s.devices) {
-    let copy = match.devices.find((v) => v.id === d.id);
+    let copy = existing.get(d.id);
     if (!copy) copy = addDevice(d.type, d.x, d.z, d.team, d.end - now, d.w, d.d, d.h, d.color, null, d.y);
     Object.assign(copy, d);
     presentFieldCue(copy);
@@ -4435,9 +4450,9 @@ function receiveState(s) {
 }
 let lastBalance = -1;
 function networkFrame(time) {
-  if (!room?.room?.started || !match || sending || time - netAt < 50) return;
-  netAt = time;
-  sending = true;
+  if (!room?.room?.started || !match || room.posting || time - (room.netAt??0) < 50) return;
+  room.netAt = time;
+  room.posting = true;
   const client = room;
   const payload = client.host
     ? { state: snapshot() }
@@ -4451,16 +4466,20 @@ function networkFrame(time) {
           skinLevel: currentSkin(match.player)?.level,
           skinVariant: currentSkin(match.player)?.variant,
           fire: fireHeld,
-          actions: queuedActions.splice(0, 24),
+          actions: queuedActions.slice(0,24),
         },
       };
   void client
     .request(client.host ? 'state' : 'input', payload)
-    .catch(() => {
-      if (room === client) roomEvent('closed', '서버 연결이 종료되었습니다.');
+    .then(()=>{client.failedSince=null})
+    .catch(error => {
+      if(room!==client)return;
+      client.failedSince??=performance.now();
+      if([400,401,403,404,413].includes(error.status) || performance.now()-client.failedSince>12000)
+        roomEvent('closed','서버 연결이 종료되었습니다.');
     })
     .finally(() => {
-      sending = false;
+      client.posting = false;
     });
 }
 function closeShop() {
@@ -4992,7 +5011,8 @@ try {
     const elapsed=time-previous;
     const dt = Math.max(0, Math.min(0.1, elapsed / 1000));
     previous = time;
-    carry = Math.min(carry + dt, 0.15);
+    const stepWindow=room?.host && room.room.started && screen!=='loading' ? .5 : .15;
+    carry = Math.min(carry + Math.max(0,elapsed/1000),stepWindow);
     if (screen === 'game' && unlocked) {
       look(
         (+keys.has('ArrowRight') - +keys.has('ArrowLeft')) * dt * 1.6,
@@ -5002,11 +5022,11 @@ try {
     if (world) {
       if (screen === 'game' && rangeAdjust)
         smokeRange = Math.max(2, Math.min(80, smokeRange + rangeAdjust * dt * 23));
-      networkFrame(time);
       while (carry >= 1 / 60) {
         step(1 / 60);
         carry -= 1 / 60;
       }
+      networkFrame(time);
       if(match && screen!=='loading'){
         if(screen==='game')world.frameBudget(time,elapsed);
         drawWorld(time);

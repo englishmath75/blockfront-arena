@@ -28,7 +28,8 @@ const themes = {
   araxys: 'beam',
   neptune: 'water',
 };
-export function arenaFinisher(scene, theme, point, born, seconds, color) {
+export const hasArenaFinisher = theme => Object.hasOwn(themes,theme);
+export function arenaFinisher(scene, theme, point, born, seconds, color, light) {
   const kind = themes[theme];
   if (!kind) return;
   const group = new T.Group(),
@@ -117,6 +118,7 @@ export function arenaFinisher(scene, theme, point, born, seconds, color) {
     update(t) {
       const age = Math.max(0, t - born);
       if (age >= seconds) {
+        light?.dispose();
         group.removeFromParent();
         dust.dispose();
         glow.dispose();
@@ -126,8 +128,9 @@ export function arenaFinisher(scene, theme, point, born, seconds, color) {
       }
       const progress = age / seconds,
         fade = Math.min(1, age * 3, (seconds - age) * 3);
+      const frame=light?.update(age);
       group.scale.setScalar(Math.max(0.001, fade));
-      ground.scale.setScalar(0.55 + Math.min(1, age * 2) + 0.08 * Math.sin(age * 5));
+      ground.scale.setScalar(frame ? .38+1.9*frame.width : .55+Math.min(1,age*2));
       halo.position.y =
         kind === 'beam'
           ? 0
@@ -135,6 +138,13 @@ export function arenaFinisher(scene, theme, point, born, seconds, color) {
             ? 0.56
             : 1.15 + 0.55 * Math.min(1, age * 0.8) + 0.1 * Math.sin(age * 1.6);
       halo.rotation.y = age * (kind === 'rogue' ? 1.2 : 0.45);
+      if(frame){
+        halo.position.y+=(frame.height-.5)*(kind==='beam'?.18:1.1);
+        halo.scale.setScalar(.72+.28*frame.energy);
+        glow.color.copy(frame.color);
+        metal.emissive.copy(frame.color);
+        metal.emissiveIntensity=.12+.48*frame.energy;
+      }
       for (let i = 0; i < dust.count; i++) {
         const f = (age * (kind === 'water' ? 0.72 : 0.38) + i * 0.618) % 1,
           angle = i * 2.4 + age * (kind === 'void' ? 1.65 : 0.4);
@@ -153,7 +163,7 @@ export function arenaFinisher(scene, theme, point, born, seconds, color) {
         dust.setMatrixAt(i, pose.matrix);
       }
       dust.instanceMatrix.needsUpdate = true;
-      glow.opacity = fade * (0.82 + 0.12 * Math.cos(progress * 20));
+      glow.opacity = fade * (frame ? .25+.75*frame.energy : .82+.12*Math.cos(progress*20));
       return true;
     },
   };

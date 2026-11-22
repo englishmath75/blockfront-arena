@@ -2,6 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { gunzipSync } from 'node:zlib';
+import { handlingTracks, sampleHandling } from './handling-motion.js';
+import { sceneryVisibility } from './scenery-visibility.js';
+import { deviceMesh, drawDevice } from './field-effects.js';
+import { skinProfile } from './skin-levels.js';
+import skinList from './skins.json' with { type:'json' };
+import shotSources from './shot-matches.json' with { type:'json' };
+import finishLight from './finish-light.json' with { type:'json' };
+import finishes from './finisher-frames.json' with { type:'json' };
 import { arenaFinisher } from './arena-finisher.js';
 import { triangleTerrain } from './triangle-terrain.js';
 import { lanePaths, visionDistance } from './field-effects.js';
@@ -18,6 +26,59 @@ import {
   rideStep,
 } from './mechanisms.js';
 import { launch, flight } from './utility.js';
+
+test('opaque map walls cull only fully hidden regions and moving the camera restores visibility',()=>{
+  const make=x=>{
+    const mesh=new T.Mesh(new T.BoxGeometry(.4,.4,.4));
+    mesh.geometry.translate(x,0,-7);return mesh;
+  };
+  const root=new T.Group(),behind=make(0),beside=make(3.5);root.add(behind,beside);
+  const camera=new T.PerspectiveCamera(72,1,.025,230);
+  camera.updateMatrixWorld();
+  const update=sceneryVisibility(root,[[-.6,-1,-2,.6,-1,-2,.6,1,-2,-.6,1,-2]]);
+  update(camera);assert.equal(behind.visible,false);assert.equal(beside.visible,true);
+  camera.position.x=2;camera.lookAt(0,0,-7);camera.updateMatrixWorld();
+  update(camera);assert.equal(behind.visible,true);
+});
+
+test('growing skill walls preserve the GPU buffers and handle a newly placed single point',()=>{
+  const mesh=deviceMesh('lane',0x33bbff,1,3,1), d={mesh,type:'lane',h:3,born:0,end:6,path:[[1,0,1]]};
+  drawDevice(d,.01);assert.equal(mesh.visible,false);
+  d.path.push([2,0,1]);drawDevice(d,.1);
+  const geometry=mesh.geometry;assert.equal(mesh.visible,true);
+  d.path.push([3,.2,1]);drawDevice(d,.2);
+  assert.equal(mesh.geometry,geometry);assert.equal(geometry.drawRange.count,12);
+  assert(Number.isFinite(geometry.boundingSphere.radius));mesh.material.dispose();geometry.dispose();
+});
+
+test('all equipped skins have closed 3D action curves and melee has no reload',()=>{
+  const inspectKeys=new Set(), reloadKeys=new Set();
+  for(const [gun,list] of Object.entries(skinList)) for(const item of list){
+    const motion=handlingTracks(gun,skinProfile(item));
+    for(const tag of ['inspect','reload']){
+      const curve=motion[tag];
+      if(gun==='melee' && tag==='reload'){assert.equal(curve,undefined);continue}
+      const seen=tag==='reload'?reloadKeys:inspectKeys;
+      const signature=JSON.stringify(curve);
+      assert(!seen.has(signature),item.name+' '+tag);seen.add(signature);
+      assert(curve.every((key,i)=>key.every(Number.isFinite) && (!i || key[0]>curve[i-1][0])));
+      const out=[0,0,0,0];sampleHandling(curve,.32,out);
+      assert(out.some(v=>Math.abs(v)>.02));
+      for(const t of [0,1]){sampleHandling(curve,t,out);assert(out.every(v=>Math.abs(v)<1e-8))}
+    }
+  }
+});
+
+test('reference light tracks align with the finisher frame clock and isolated shots resolve locally',()=>{
+  for(const [id,s] of Object.entries(finishes)){
+    assert.equal(Buffer.from(finishLight[id],'base64').length,s.frames*7,id);
+  }
+  for(const [id,[level,at,duration,score]] of Object.entries(shotSources)){
+    assert(level>=1 && at>=0 && duration>=.23 && score>=.78);
+    const data=fs.readFileSync(new URL('./public/weapon-audio/'+id+'-discharge.ogg',import.meta.url));
+    assert.equal(data.toString('ascii',0,4),'OggS');
+  }
+});
 
 test('muzzle direction is measured in weapon space after socket rotation',()=>{
   const grip=new T.Group(),gun=new T.Group(),tip=new T.Bone(),trigger=new T.Bone();

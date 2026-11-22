@@ -10,9 +10,10 @@ export class PlayerRoom {
         ...(this.token ? { Authorization: 'Bearer ' + this.token } : {}),
       },
       body: JSON.stringify({ ...body, code: joining ? body.code : this.room.code }),
+      signal: AbortSignal.timeout(joining?60000:8000),
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error);
+    if (!response.ok) throw Object.assign(new Error(result.error),{status:response.status});
     return result;
   }
   async join(options) {
@@ -27,12 +28,15 @@ export class PlayerRoom {
         if (type === 'room' || type === 'start') this.room = data;
         this.onEvent(type, data);
       });
+    this.source.onopen = () => { clearTimeout(this.reconnect); this.reconnect=null; };
     this.source.onerror = () => {
-      if (this.room?.started) this.onEvent('closed', '경기 연결이 끊겼습니다.');
+      if(this.room?.started && !this.reconnect)
+        this.reconnect=setTimeout(()=>this.onEvent('closed','경기 연결이 끊겼습니다.'),12000);
     };
   }
   async leave() {
     if (!this.room) return;
+    clearTimeout(this.reconnect);
     this.source?.close();
     try {
       await this.request('leave');

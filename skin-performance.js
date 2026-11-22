@@ -1,6 +1,8 @@
 import { recordedAction } from './recorded-weapon.js';
 import { motionAction } from './weapon-motion.js';
-import { arenaFinisher } from './arena-finisher.js';
+import { arenaFinisher, hasArenaFinisher } from './arena-finisher.js';
+import { finishLighting, prepareFinishLighting } from './finish-lighting.js';
+import shots from './shot-matches.json' with { type: 'json' };
 import filmed from './finisher-frames.json' with { type: 'json' };
 import * as T from 'three';
 let library, loading, localFiles;
@@ -19,6 +21,10 @@ function finishImage(family) {
   return finishImages.get(family);
 }
 const path = '/weapon-audio/';
+const performanceAudio=take=>'/performances/'+take.key+'.ogg'+(take.key.endsWith('-fire')?'?v=13':'');
+function discharge(s) {
+  if (s.soundOn && shots[s.id] && s.level>=shots[s.id][0]) return path+s.id+'-discharge.ogg';
+}
 export const palettes = {
   rogue: '#ee443f',
   champions23: '#f6c145',
@@ -37,8 +43,12 @@ export const palettes = {
 export function prepareSkin(s,context) {
   if (!s) return;
   if (s.finishOn && filmed[s.family]) {
+    void prepareFinishLighting();
     if (filmed[s.family].audio !== false) prime('/effects/finish-'+s.family+'.ogg');
+    if(!hasArenaFinisher(s.banner??s.family)) void finishImage(s.family).decode().catch(()=>{});
   }
+  const reference=discharge(s);
+  if(reference && context) void decodeCue(context,reference);
   loading ??= fetch('/weapon-audio/events.json?v=1.2')
     .then((r) => {
       if (r.ok) return r.json();
@@ -52,7 +62,7 @@ export function prepareSkin(s,context) {
     });
   for (const a of ['fire', 'reload', 'equip','inspect']) {
     const f = recordedAction(s, a, true);
-    if (f) prime('/performances/' + f.key + '.ogg');
+    if (f) prime(performanceAudio(f));
     else if (motionAction(s,a)) prime('/motion/'+s.id+'-'+a+'.ogg');
   }
   if (s.performance) for (const action of ['shot', 'reload']) prime(path + s.id + '-' + action + '.ogg');
@@ -63,7 +73,7 @@ export function prepareSkin(s,context) {
     }
     if(context && s.soundOn){
       const action=recordedAction(s,'shot',true);
-      const urls=action?['/performances/'+action.key+'.ogg']:s.performance?[path+s.id+'-shot.ogg']:
+      const urls=action?[performanceAudio(action)]:reference?[reference]:s.performance?[path+s.id+'-shot.ogg']:
         (library?.variants?.[s.id]?.shot??[]).filter(id=>localFiles?.has(id)).map(url);
       for(const src of urls)decodeCue(context,src);
     }
@@ -109,6 +119,7 @@ export function playSkinEvent(s, action, duration, volume, context, gun, balance
   )
     return false;
   const recorded = s.performance && ['shot', 'reload'].includes(action);
+  const shot=action==='shot' && discharge(s);
   const recordings = library?.variants?.[s.id]?.[action];
   const sequence = recordings?.length
     ? [[0, recordings[Math.floor(Math.random() * recordings.length)]]]
@@ -116,8 +127,8 @@ export function playSkinEvent(s, action, duration, volume, context, gun, balance
   if (!film && s.motionOn === false && ['inspect', 'equip', 'reload', 'light', 'heavy'].includes(action))
     return false;
   const events = film
-    ? [[0, '/performances/' + film.key + '.ogg']]
-    : captured
+    ? [[0,performanceAudio(film)]]
+    : shot ? [[0,shot]] : captured
       ? [[0, '/motion/' + s.id + '-' + action + '.ogg']]
       : recorded
         ? [[0, path + s.id + '-' + action + '.ogg']]
@@ -240,7 +251,8 @@ export function weaponAnimation(world) {
 export function finisher(scene, family, point, now) {
   if (!palettes[family]) return null;
   const sequence = filmed[family];
-  const native=arenaFinisher(scene,point.theme??family,point,now,sequence?.duration??4,palettes[family]);
+  const light=sequence && finishLighting(scene,point,family,sequence);
+  const native=arenaFinisher(scene,point.theme??family,point,now,sequence?.duration??4,palettes[family],light);
   if(native)return native;
   if (sequence) {
     const image = finishImage(family);
@@ -264,12 +276,14 @@ export function finisher(scene, family, point, now) {
       update(t) {
         const frame = Math.floor(Math.max(0, t - now) * sequence.fps);
         if (frame >= sequence.frames) {
+          light?.dispose();
           sprite.removeFromParent();
           texture.dispose();
           material.dispose();
           return false;
         }
         sprite.visible = image.complete && image.naturalWidth>0;
+        light?.update(t-now);
         if (sprite.visible && !texture.version) texture.needsUpdate = true;
         texture.offset.set((frame % 8) / 8, 1 - (1 + Math.floor(frame / 8)) / sequence.rows);
         return true;

@@ -7,6 +7,18 @@ const ball = new T.SphereGeometry(0.5, 40, 28),
   block = new T.BoxGeometry(1, 1, 1);
 const vertex =
   'varying vec2 v; varying vec3 p; void main(){v=uv;p=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}';
+const volumeSize=32;
+const noiseData=new Uint8Array(volumeSize**3);
+let seed=21941;
+for(let i=0;i<noiseData.length;i++){
+  seed=(Math.imul(seed,1664525)+1013904223)>>>0;
+  noiseData[i]=seed>>>24;
+}
+const noiseVolume=new T.Data3DTexture(noiseData,volumeSize,volumeSize,volumeSize);
+noiseVolume.format=T.RedFormat;
+noiseVolume.minFilter=noiseVolume.magFilter=T.LinearFilter;
+noiseVolume.wrapS=noiseVolume.wrapT=noiseVolume.wrapR=T.RepeatWrapping;
+noiseVolume.needsUpdate=true;
 function surface(color, kind) {
   const uniforms = {
     t: { value: 0 },
@@ -16,17 +28,19 @@ function surface(color, kind) {
     kind: { value: kind },
     front: { value: 1 },
     back: { value: 0 },
+    noiseVolume:{value:noiseVolume},
   };
   return new T.ShaderMaterial({
     uniforms,
     vertexShader: vertex,
     side: T.DoubleSide,
     transparent: kind !== 0,
+    forceSinglePass: true,
     depthWrite: kind === 0,
     fragmentShader: `
 varying vec2 v;varying vec3 p;uniform float t,opacity,kind,front,back;uniform vec3 shade;uniform float span;
-float hash(vec3 pos){return fract(sin(dot(pos,vec3(43.81,57.13,13.71)))*45758.5453);}
-float noise(vec3 pos){vec3 i=floor(pos),f=fract(pos);f=f*f*(3.-2.*f);return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1)),f.x),f.y),f.z);}
+uniform highp sampler3D noiseVolume;
+float noise(vec3 pos){vec3 f=fract(pos);return texture(noiseVolume,(floor(pos)+f*f*(3.-2.*f)+.5)/32.).r;}
 void main(){vec3 c=shade;float a=opacity;if(kind<.5){float n=noise(p*8.+vec3(t*.3,t*.24,-t*.4));float flow=sin(p.y*28.+n*5.+p.x*3.-t*2.);c=mix(shade*.56,shade*1.45+.015, .43+.34*n+.18*flow);c+=.12*pow(max(0.,flow),5.);}
 else if(kind<1.5){
   if(v.x>front||v.x<back)discard;
@@ -110,6 +124,18 @@ export function deviceMesh(type, color, w, h, d) {
   mesh.userData.owned = false;
   return mesh;
 }
+
+export async function warmFieldMaterials(world) {
+  const staging=new T.Scene();
+  for(const type of ['smoke','lane','wall','recon']){
+    const mesh=deviceMesh(type,0x8fd9ef,1,1,1);
+    staging.add(mesh);
+  }
+  // The registry keeps one instance of each program alive for this map.
+  // Releasing the final material would force the next cast to compile it again.
+  world.fieldMaterials.push(...staging.children.map(m=>m.material));
+  await world.renderer.compileAsync(staging,world.camera,world.scene);
+}
 export function lanePaths(world, p, devices) {
   const paths = [];
   const forward = new T.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw)),
@@ -139,25 +165,35 @@ export function lanePaths(world, p, devices) {
   }
   return paths;
 }
-function ribbon(path, h) {
-  const pos = [],
-    uv = [],
-    indices = [];
-  for (let i = 0; i < path.length; i++) {
-    const [x, y, z] = path[i];
-    pos.push(x, y, z, x, y + h, z);
-    uv.push(i / (path.length - 1), 0, i / (path.length - 1), 1);
-    if (i) {
-      const a = 2 * i;
-      indices.push(a - 2, a, a - 1, a - 1, a, a + 1);
+function updateRibbon(mesh, path, h) {
+  const count=path.length;
+  if(!mesh.userData.owned || mesh.userData.capacity<count){
+    if(mesh.userData.owned)mesh.geometry.dispose();
+    const capacity=Math.max(64,2**Math.ceil(Math.log2(count)));
+    const g=mesh.geometry=new T.BufferGeometry(), indices=[];
+    for(let i=1;i<capacity;i++){
+      const a=2*i;indices.push(a-2,a,a-1,a-1,a,a+1);
     }
+    g.setIndex(indices);
+    g.setAttribute('position',new T.BufferAttribute(new Float32Array(capacity*6),3).setUsage(T.DynamicDrawUsage));
+    g.setAttribute('uv',new T.BufferAttribute(new Float32Array(capacity*4),2).setUsage(T.DynamicDrawUsage));
+    g.boundingSphere=new T.Sphere();
+    mesh.userData.owned=true;
+    mesh.userData.capacity=capacity;
   }
-  const g = new T.BufferGeometry();
-  g.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
-  g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2));
-  g.setIndex(indices);
-  g.computeBoundingSphere();
-  return g;
+  const g=mesh.geometry, pos=g.attributes.position, uv=g.attributes.uv;
+  const [cx,cy,cz]=path[count>>1];
+  g.boundingSphere.center.set(cx,cy+h*.5,cz);
+  let radiusSq=0;
+  for(let i=0;i<count;i++){
+    const [x,y,z]=path[i], u=i/(count-1);
+    pos.setXYZ(i*2,x,y,z);pos.setXYZ(i*2+1,x,y+h,z);
+    uv.setXY(i*2,u,0);uv.setXY(i*2+1,u,1);
+    radiusSq=Math.max(radiusSq,(x-cx)**2+(Math.abs(y-cy)+h*.5)**2+(z-cz)**2);
+  }
+  g.boundingSphere.radius=Math.sqrt(radiusSq);
+  g.setDrawRange(0,6*(count-1));
+  pos.needsUpdate=uv.needsUpdate=true;
 }
 export function drawDevice(d, now) {
   const m = d.mesh,
@@ -175,11 +211,11 @@ export function drawDevice(d, now) {
     return;
   }
   if (['lane', 'blaze', 'tide'].includes(d.type)) {
-    if (!d.path) return;
+    m.visible=(d.path?.length??0)>=2;
+    if (!m.visible) return;
     if (!m.userData.owned || m.userData.length !== d.path.length) {
-      if (m.userData.owned) m.geometry.dispose();
       m.userData.length = d.path.length;
-      m.geometry = ribbon(d.path, d.h);
+      updateRibbon(m,d.path,d.h);
       const first = d.path[0],
         last = d.path.at(-1);
       u.span.value = Math.hypot(last[0] - first[0], last[2] - first[2]);
