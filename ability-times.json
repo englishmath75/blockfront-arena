@@ -1,0 +1,917 @@
+{
+  "폭파봇 지옥": {
+    "equip time": 0.9,
+    "unequip time": 0.85,
+    "windup": 3,
+    "title": "Mosh Pit"
+  },
+  "요동봇": {
+    "equip time": 0.9,
+    "deployment duration": 0.6,
+    "speed": 11.22,
+    "search duration": 6,
+    "lunge radius": 5,
+    "detain duration": 6,
+    "unequip time": 0.7,
+    "vision restoration duration": 1.5,
+    "title": "Thrash"
+  },
+  "기절봇": {
+    "equip time": 0.9,
+    "unequip time": 0.85,
+    "blind windup on target acquisition": 0.35,
+    "effective active duration": 1,
+    "max detection distance": 45,
+    "plasma explosion radius on target": 2.5,
+    "title": "Dizzy"
+  },
+  "귀체": {
+    "maximum air time": 1.5,
+    "windup": 0.825,
+    "radius": 30,
+    "eye duration": 1.5,
+    "trail duration": 12,
+    "title": "Haunt"
+  },
+  "추적귀": {
+    "equip time": 1.1,
+    "unequip time": 0.7,
+    "search duration": 2.5,
+    "detection distance": 15,
+    "travel speeds": 10,
+    "windup time": 0.6,
+    "nearsight duration": 2.75,
+    "nearsight vision radius": 7,
+    "title": "Prowler"
+  },
+  "황혼": {
+    "equip time": 0.7,
+    "unequip time": 1,
+    "debuff duration": 8,
+    "title": "Nightfall"
+  },
+  "포박": {
+    "maximum air time": 1.5,
+    "windup": 0.7,
+    "zone radius": 6.58,
+    "zone duration": 4.5,
+    "title": "Seize"
+  },
+  "섬광 폭발": {
+    "equip time": 1.1,
+    "max deploy distance": 35,
+    "unequip time": 0.7,
+    "windup time": 0.5,
+    "max blind duration": 2.25,
+    "title": "Flashpoint"
+  },
+  "균열": {
+    "equip time": 0.8,
+    "distance between breach and aoe": 8,
+    "time required to fully charge": 1,
+    "unequip time": 0.7,
+    "windup time": 1.1,
+    "concuss duration": 2.5,
+    "title": "Fault Line"
+  },
+  "여진": {
+    "equip time": 0.9,
+    "max deploy distance": 35,
+    "unequip time": 0.7,
+    "windup time": 2.2,
+    "title": "Aftershock"
+  },
+  "지진 강타": {
+    "equip time": 1.1,
+    "channel time": 0.6,
+    "unequip time": 0.4,
+    "distance between breach and aoe": 8,
+    "concuss duration": 4,
+    "title": "Rolling Thunder"
+  },
+  "음향 센서": {
+    "equip time": 0.8,
+    "max deploy distance": 14,
+    "unequip time": 0.7,
+    "deploy time": 1.75,
+    "windup": 0.5,
+    "concuss duration": 2.5,
+    "title": "Sonic Sensor"
+  },
+  "장벽망": {
+    "equip time": 0.8,
+    "unequip time": 0.7,
+    "deploy time": 1,
+    "time taken to fortify": 3,
+    "title": "Barrier Mesh"
+  },
+  "중력그물": {
+    "equip time": 0.8,
+    "unequip time": 0.7,
+    "windup": 0.4,
+    "radius": 6.5,
+    "net removal channel time": 1.5,
+    "title": "GravNet"
+  },
+  "유도 일제 사격": {
+    "max deploy distance": 45,
+    "unequip time": 0.92,
+    "windup time": 1.25,
+    "title": "Guided Salvo"
+  },
+  "소멸": {
+    "equip time": 1.1,
+    "reequip time": 0.7,
+    "max duration": 10,
+    "pulse speed": 82.5,
+    "maximum pulse travel distance": 40,
+    "pulse radius at path end": 6.5,
+    "windup time": 0.5,
+    "unequip time": 0.25,
+    "cocoon duration": 7,
+    "title": "Annihilation"
+  },
+  "잠입 드론": {
+    "equip time": 0.8,
+    "deploy time": 0.3,
+    "vision radius": 18,
+    "detection radius": 18,
+    "re-stealth timer": 2,
+    "duration": 6,
+    "windup time": 0.4,
+    "unequip time": 0.5,
+    "detonation radius": 16,
+    "pulse velocity": 16,
+    "suppress duration": 8,
+    "title": "Stealth Drone"
+  },
+  "지원봇": {
+    "equip time": 0.9,
+    "unequip time": 0.4,
+    "run speed": 6.3,
+    "search duration": 5,
+    "max detection cone distance": 15,
+    "blast windup": 0.6,
+    "concuss duration": 2.5,
+    "title": "Wingman"
+  },
+  "아마겟돈": {
+    "equip time": 0.6,
+    "max deploy distance": 52.5,
+    "unequip time": 1,
+    "title": "Armageddon"
+  },
+  "특별 배송": {
+    "equip time": 0.5,
+    "unequip time": 0.4,
+    "max projectile duration": 3,
+    "windup time": 0.9,
+    "concuss duration": 2.5,
+    "title": "Special Delivery"
+  },
+  "폭발 팩": {
+    "unequip time": 0.7,
+    "max duration": 5,
+    "time needed to arm": 1.5,
+    "title": "Blast Pack"
+  },
+  "폭발 봇": {
+    "equip time": 1.1,
+    "deploy time": 0.7,
+    "unequip time": 0,
+    "duration": 5,
+    "max detection cone distance": 15,
+    "windup time": 0.6,
+    "title": "Boom Bot"
+  },
+  "대미 장식": {
+    "equip time": 1.4,
+    "max duration": 10,
+    "unequip time": 0.4,
+    "title": "Showstopper"
+  },
+  "랑데부": {
+    "equip time": 0.8,
+    "max cast distance": 8.5,
+    "unequip time": 0.6,
+    "anchor radius": 18,
+    "audio cue radius": 42.5,
+    "recall time": 0.7,
+    "title": "Rendezvous"
+  },
+  "트레이드마크": {
+    "equip time": 1,
+    "max cast radius": 12,
+    "unequip time": 0.7,
+    "deploy time": 2,
+    "search radius": 10,
+    "recall duration": 0.75,
+    "windup time": 0.9,
+    "slow radius": 6,
+    "slow duration": 4,
+    "title": "Trademark"
+  },
+  "헤드헌터": {
+    "equip time": 0.3,
+    "title": "Headhunter"
+  },
+  "역작": {
+    "initial summon time": 2.3,
+    "damage": 150,
+    "slow radius": 6,
+    "slow duration": 4,
+    "title": "Tour De Force"
+  },
+  "페인트탄": {
+    "equip time": 0.8,
+    "unequip time": 0.7,
+    "title": "Paint Shells"
+  },
+  "플래시/드라이브": {
+    "equip time": 0.8,
+    "unequip time": 0.6,
+    "windup time on bounce": 0.8,
+    "max windup time": 1.6,
+    "telegraph windup time": 0.3,
+    "max blind duration": 2.25,
+    "title": "FLASH/drive"
+  },
+  "정찰자": {
+    "equip time": 0.8,
+    "deploy time": 0.18,
+    "vision radius": 22.5,
+    "duration": 6,
+    "explosion radius": 3.5,
+    "damage": 30,
+    "unequip time": 0.7,
+    "title": "Trailblazer"
+  },
+  "무력화/명령": {
+    "windup time": 1,
+    "radius": 42.5,
+    "suppression duration": 4,
+    "overloaded duration": 12,
+    "downed health": 850,
+    "downed duration": 15,
+    "stabilization duration": 1.5,
+    "revive duration": 1.55,
+    "title": "NULL/cmd"
+  },
+  "제로/포인트": {
+    "equip time": 0.8,
+    "radius": 15,
+    "windup": 1,
+    "suppression duration": 8,
+    "title": "ZERO/point"
+  },
+  "추적자": {
+    "equip time": 0.8,
+    "unequip time": 0.55,
+    "nearsight duration": 3,
+    "nearsight vision radius": 7.5,
+    "slow duration": 5,
+    "title": "Seekers"
+  },
+  "파편/탄": {
+    "equip time": 0.7,
+    "windup": 0.5,
+    "duration": 4,
+    "title": "FRAG/ment"
+  },
+  "사이버 감옥": {
+    "unequip time": 0.7,
+    "cylinder radius": 3.72,
+    "title": "Cyber Cage"
+  },
+  "스파이캠": {
+    "equip time": 0.8,
+    "max deploy distance": 20,
+    "unequip time": 0.7,
+    "dart cooldown": 6,
+    "title": "Spycam"
+  },
+  "함정": {
+    "equip time": 0.8,
+    "max deploy distance": 20,
+    "unequip time": 0.7,
+    "deploy time": 1.5,
+    "detection distance": 3,
+    "recall duration": 0.5,
+    "triggered slow duration": 1.25,
+    "windup time": 0.7,
+    "distance required to move away when affected": 4,
+    "damage": 5,
+    "re-arm time": 2,
+    "title": "Trapwire"
+  },
+  "신경 절도": {
+    "max cast distance": 18,
+    "unequip time": 1,
+    "1st reveal windup time": 2,
+    "2nd reveal windup time": 4,
+    "title": "Neural Theft"
+  },
+  "충격 화살": {
+    "equip time": 0.8,
+    "unequip time": 0.7,
+    "windup time": 0.4,
+    "title": "Shock Bolt"
+  },
+  "인도하는 빛": {
+    "equip time": 0.8,
+    "unequip time": 0.85,
+    "velocity": 18,
+    "duration": 2,
+    "flash max duration windup time": 0.75,
+    "flash activation windup time": 0.3,
+    "title": "Guiding Light"
+  },
+  "정찰용 화살": {
+    "equip time": 0.8,
+    "unequip time": 0.7,
+    "radius": 30,
+    "reveal duration": 0.75,
+    "title": "Recon Bolt"
+  },
+  "올빼미 드론": {
+    "equip time": 0.9,
+    "duration": 7,
+    "dart cooldown": 5,
+    "unequip time": 0.7,
+    "title": "Owl Drone"
+  },
+  "사냥꾼의 분노": {
+    "equip time": 0.8,
+    "max duration": 6,
+    "damage": 80,
+    "unequip time": 1,
+    "title": "Hunter's Fury"
+  },
+  "M-파동": {
+    "equip time": 0.71,
+    "unequip time": 0.6,
+    "radius": 5.5,
+    "pulses": 3,
+    "windup to first pulse": 1,
+    "title": "M-pulse"
+  },
+  "웨이브폼": {
+    "equip time": 0.7,
+    "unequip time": 0.6,
+    "windup time": 1,
+    "title": "Waveform"
+  },
+  "재생": {
+    "equip time": 0.5,
+    "radius": 18,
+    "unequip time": 0.7,
+    "title": "Regrowth"
+  },
+  "요동치는 베이스": {
+    "equip time": 1,
+    "channel time": 1.6,
+    "unequip time": 0.25,
+    "radius": 40,
+    "debuff duration": 8,
+    "title": "Bassquake"
+  },
+  "나노스웜": {
+    "equip time": 0.74,
+    "unequip time": 0.7,
+    "buy phase pickup range": 4,
+    "detection radius": 5.25,
+    "radius": 4.5,
+    "duration": 5,
+    "title": "Nanoswarm"
+  },
+  "봉쇄": {
+    "equip time": 0.8,
+    "deploy time": 0.52,
+    "unequip time": 0.15,
+    "radius": 32.5,
+    "windup time": 13,
+    "detain duration": 8,
+    "title": "Lockdown"
+  },
+  "만조": {
+    "equip time": 0.6,
+    "unequip time": 0.6,
+    "sphere velocity": 25,
+    "travel distance": 60,
+    "duration": 15,
+    "slow duration": 0.6,
+    "title": "High Tide"
+  },
+  "폭풍 쇄도": {
+    "equip time": 0.8,
+    "unequip time": 0.7,
+    "radius": 6,
+    "windup time": 0.6,
+    "nearsight duration": 2,
+    "slow duration": 2,
+    "title": "Storm Surge"
+  },
+  "해만": {
+    "max deploy distance": 80,
+    "orb velocity": 64,
+    "deploy time": 1,
+    "radius": 4.6,
+    "duration": 19.25,
+    "shield windup": 0.8,
+    "shield unequip time": 0.5,
+    "title": "Cove"
+  },
+  "화음": {
+    "equip time": 0.3,
+    "cast time": 0.1,
+    "unequip time": 0.3,
+    "buff duration": 8,
+    "title": "Harmonize"
+  },
+  "아크 장미": {
+    "equip time": 0.8,
+    "max targeting distance": 20,
+    "unequip time": 0.7,
+    "detection radius": 10,
+    "deploy time": 0.8,
+    "max recall distance": 32.5,
+    "windup time": 0.5,
+    "max blind duration": 2,
+    "title": "Arc Rose"
+  },
+  "면도날 덩굴": {
+    "equip time": 0.8,
+    "unequip time": 0.8,
+    "deploy time": 0.75,
+    "detection radius": 3.5,
+    "windup": 0.2,
+    "radius": 6.25,
+    "title": "Razorvine"
+  },
+  "독성 연기": {
+    "equip time": 0.8,
+    "unequip time": 0.7,
+    "pickup distance (buy phase only)": 4,
+    "radius": 4.5,
+    "deactivation time": 0.8,
+    "activation cooldowns": 2,
+    "title": "Poison Cloud"
+  },
+  "강철 정원": {
+    "equip time": 0.7,
+    "radius": 28,
+    "unequip time": 0.8,
+    "windup": 4.4,
+    "jammed duration": 8,
+    "title": "Steel Garden"
+  },
+  "독성 장막": {
+    "equip time": 0.8,
+    "unequip time": 0.7,
+    "total emitters at max range": 30,
+    "deactivation time": 0.8,
+    "activation cooldowns": 2,
+    "title": "Toxic Screen"
+  },
+  "뱀 이빨": {
+    "equip time": 0.8,
+    "unequip time": 0.7,
+    "radius": 4.5,
+    "duration": 6.5,
+    "vulnerable duration": 2,
+    "title": "Snake Bite"
+  },
+  "가지치기": {
+    "max deploy distance": 15,
+    "deploy time": 2,
+    "detection distance": 3.5,
+    "title": "Shear"
+  },
+  "독사의 구덩이": {
+    "equip time": 0.5,
+    "max cast radius for cloud's center": 7.25,
+    "unequip time": 1.35,
+    "vision radius": 8.1,
+    "integrity duration": 8,
+    "title": "Viper's Pit"
+  },
+  "심판": {
+    "equip time": 0.8,
+    "cast time": 0.2,
+    "unequip time": 0.7,
+    "velocity": 8,
+    "duration (if stopped)": 7,
+    "nearsight duration": 3,
+    "slow duration": 2,
+    "pool radius": 21.25,
+    "base pool travel speed": 0.875,
+    "pool duration": 9,
+    "concuss windup": 1.35,
+    "concuss duration": 2,
+    "title": "Reckoning"
+  },
+  "격류": {
+    "windup time": 0.75,
+    "velocity": 22.5,
+    "unequip time": 0.3,
+    "title": "Flow"
+  },
+  "일체 정지": {
+    "max duration": 6,
+    "maximum travel time in air": 2,
+    "levitate duration": 4,
+    "title": "Suspension"
+  },
+  "뜨거운 손": {
+    "equip time": 0.8,
+    "unequip time": 0.7,
+    "maximum air time": 1.5,
+    "duration": 4,
+    "title": "Hot Hands"
+  },
+  "역습": {
+    "duration": 10,
+    "title": "Run it Back"
+  },
+  "요격기": {
+    "equip time": 0.8,
+    "deployment distance": 7,
+    "unequip time": 0.7,
+    "windup time": 0.5,
+    "cast time": 0.5,
+    "duration": 9,
+    "radius": 18,
+    "targeting delay": 0.2,
+    "title": "Interceptor"
+  },
+  "지름길": {
+    "equip time": 0.8,
+    "unequip time": 0.5,
+    "deployment time": 0.75,
+    "vortex radius": 30,
+    "title": "Crosscut"
+  },
+  "진화": {
+    "windup time": 1,
+    "title": "Evolution"
+  },
+  "신성 파동": {
+    "radius": 4.75,
+    "windup time": 1,
+    "concuss duration": 2.5,
+    "title": "Nova Pulse"
+  },
+  "불길": {
+    "equip time": 0.8,
+    "duration": 8,
+    "title": "Blaze"
+  },
+  "커브볼": {
+    "equip time": 0.8,
+    "unequip time": 0.48,
+    "windup time": 0.6,
+    "max blind duration": 1.5,
+    "title": "Curveball"
+  },
+  "우주 장벽": {
+    "unequip time": 0.4,
+    "title": "Cosmic Divide"
+  },
+  "목조르기": {
+    "equip time": 0.8,
+    "unequip time": 0.6,
+    "deployment time": 1.5,
+    "windup": 0.5,
+    "zone radius": 6.58,
+    "zone duration": 4.5,
+    "title": "Chokehold"
+  },
+  "중력의 샘": {
+    "windup time": 1.25,
+    "radius": 4.75,
+    "pull duration": 2,
+    "vulnerable duration": 2.5,
+    "title": "Gravity Well"
+  },
+  "소이탄": {
+    "equip time": 1.1,
+    "unequip time": 0.7,
+    "radius": 4.5,
+    "title": "Incendiary"
+  },
+  "약화": {
+    "equip time": 0.8,
+    "unequip time": 0.5,
+    "velocity": 22.5,
+    "duration": 1.55,
+    "travel distance": 34.875,
+    "radius": 3,
+    "vulnerable duration": 4,
+    "title": "Undercut"
+  },
+  "자극제 신호기": {
+    "unequip time": 0.7,
+    "radius": 6,
+    "buff duration": 4,
+    "beacon duration": 12,
+    "title": "Stim Beacon"
+  },
+  "청부 계약": {
+    "equip time": 1.1,
+    "transportation duration to and from arena": 0.5,
+    "arena creation duration": 1.5,
+    "max duel duration": 13,
+    "time until exit on kill": 2,
+    "title": "Kill Contract"
+  },
+  "대비책": {
+    "equip time": 0.8,
+    "unequip time": 0.5,
+    "travel distance": 27.5,
+    "distance between iso and wall on cast": 5,
+    "time taken to fully form": 0.4,
+    "duration": 5.4,
+    "deactivation time": 0.4,
+    "title": "Contingency"
+  },
+  "계략": {
+    "equip time": 0.6,
+    "max cast range": 60,
+    "unequip time": 0.7,
+    "windup time": 1,
+    "radius": 4,
+    "title": "Ruse"
+  },
+  "궤도 일격": {
+    "equip time": 0.74,
+    "max cast range": 60,
+    "unequip time": 1,
+    "windup time": 2,
+    "radius": 9,
+    "duration": 3,
+    "title": "Orbital Strike"
+  },
+  "아직 안 죽었어": {
+    "revive duration": 1.5,
+    "maximum intangibility duration": 2,
+    "deactivation duration": 0.8,
+    "resurrection timer": 10,
+    "title": "Not Dead Yet"
+  },
+  "공중 연막": {
+    "equip time": 0.8,
+    "max cast range": 55,
+    "unequip time": 0.7,
+    "deploy time": 1,
+    "radius": 4.15,
+    "duration": 19.25,
+    "title": "Sky Smoke"
+  },
+  "고속 기어": {
+    "activation animation duration": 0.7,
+    "slide duration": 0.6,
+    "title": "High Gear"
+  },
+  "릴레이 볼트": {
+    "unequip time": 0.7,
+    "max projectile duration": 5,
+    "radius": 5,
+    "explosion windup time": 1,
+    "concuss duration": 2.5,
+    "title": "Relay Bolt"
+  },
+  "활력 회복": {
+    "activation duration": 0.7,
+    "buff duration": 10,
+    "title": "Pick-me-up"
+  },
+  "추월 차선": {
+    "unequip time": 1,
+    "deploy time": 0.4,
+    "distance between walls": 3.5,
+    "duration": 4,
+    "wall dissolve duration": 2,
+    "title": "Fast Lane"
+  },
+  "오버드라이브": {
+    "initial windup time": 1,
+    "reload time": 0.5,
+    "title": "Overdrive"
+  },
+  "간섭": {
+    "equip time": 0.8,
+    "unequip time": 0.7,
+    "windup": 0.75,
+    "radius": 4,
+    "maximum decayed health": 90,
+    "decay duration": 5,
+    "title": "Meddle"
+  },
+  "포화": {
+    "unequip time": 0.3,
+    "maximum air time": 1,
+    "windup": 0.6,
+    "radius": 6,
+    "hinder duration": 3,
+    "title": "Saturate"
+  },
+  "광속": {
+    "equip time": 0.8,
+    "dash duration": 0.45,
+    "unequip time": 0,
+    "title": "Lightspeed"
+  },
+  "초점 교차": {
+    "equip time": 0.7,
+    "distance between waylay and aoe": 3,
+    "channel time": 0.6,
+    "windup": 1,
+    "buff duration": 7,
+    "debuff duration": 6,
+    "title": "Convergent Paths"
+  },
+  "둔화 구슬": {
+    "equip time": 0.5,
+    "unequip time": 0.4,
+    "duration": 7,
+    "title": "Slow Orb"
+  },
+  "회복 구슬": {
+    "equip time": 0.5,
+    "unequip time": 0.7,
+    "duration": 5,
+    "title": "Healing Orb"
+  },
+  "장벽 구슬": {
+    "unequip time": 0.7,
+    "time taken to fortify": 2,
+    "title": "Barrier Orb"
+  },
+  "무시": {
+    "duration": 1.5,
+    "unequip time": 0.6,
+    "title": "Dismiss"
+  },
+  "포식": {
+    "unequip time": 0.5,
+    "healing duration": 3,
+    "overheal duration (without empress)": 10,
+    "title": "Devour"
+  },
+  "굴절": {
+    "activation windup": 1,
+    "empowered duration": 8,
+    "reactivation windup": 0.05,
+    "unequip time": 0.8,
+    "self-blind duration on arrival": 0.2,
+    "title": "Refract"
+  },
+  "피해망상": {
+    "equip time": 1.1,
+    "unequip time": 0.7,
+    "orb velocity": 20,
+    "nearsight duration": 2,
+    "nearsighted vision radius": 7.5,
+    "title": "Paranoia"
+  },
+  "여제": {
+    "windup time": 1,
+    "title": "Empress"
+  },
+  "어둠의 장막": {
+    "max deploy distance": 80,
+    "unequip time": 0.7,
+    "orb velocity": 64,
+    "deploy time": 1,
+    "radius": 4.1,
+    "duration": 15,
+    "title": "Dark Cover"
+  },
+  "어둠의 발자국": {
+    "equip time": 0.5,
+    "max cast distance": 15,
+    "unequip time": 0.7,
+    "arrival audio cue radius": 12.5,
+    "title": "Shrouded Step"
+  },
+  "눈총": {
+    "equip time": 0.77,
+    "deployment distance": 10,
+    "unequip time": 0.5,
+    "duration while applying nearsight": 1.6,
+    "max vision radius while nearsighted": 6,
+    "title": "Leer"
+  },
+  "그림자 습격": {
+    "equip time": 0.5,
+    "audio cue radius": 22.5,
+    "title": "From the Shadows"
+  },
+  "순풍": {
+    "windup": 1,
+    "empowered duration": 7.5,
+    "dash duration": 0.45,
+    "unequip time": 0.2,
+    "title": "Tailwind"
+  },
+  "상승 기류": {
+    "duration": 0.6,
+    "title": "Updraft"
+  },
+  "연막 폭발": {
+    "unequip time": 0.25,
+    "maximum travel time in air": 2,
+    "radius": 3.35,
+    "duration": 2.5,
+    "title": "Cloudburst"
+  },
+  "칼날 폭풍": {
+    "initial windup time": 1.02,
+    "reequip time": 0.5,
+    "quick equip time": 0.15,
+    "damage": 50,
+    "unequip times (out of ammo)": 0.167,
+    "title": "Blade Storm",
+    "unequip times / (out of ammo)": 0.167
+  },
+  "부활": {
+    "equip time": 0.8,
+    "max cast distance": 12,
+    "windup time": 2,
+    "unequip time": 1,
+    "revive duration": 1.3,
+    "title": "Resurrection"
+  },
+  "알람봇": {
+    "proximity radius to remain active": 40,
+    "movement speed": 22.5,
+    "reactivation time": 2,
+    "title": "Alarmbot"
+  },
+  "포탑": {
+    "equip time": 1.1,
+    "unequip time": 0.7,
+    "deploy time": 2.7,
+    "proximity radius to remain active": 40,
+    "windup time": 0.75,
+    "reactivation time": 2,
+    "title": "Turret"
+  },
+  "기만": {
+    "equip time": 0.8,
+    "unequip time": 0.7,
+    "maximum image duration": 10,
+    "flash windup time": 0.6,
+    "max flash duration": 2,
+    "maximum duration": 10,
+    "title": "Fakeout"
+  },
+  "기습": {
+    "equip time": 0.8,
+    "windup time": 0.6,
+    "max flash duration": 1.5,
+    "title": "Blindside"
+  },
+  "관문 충돌": {
+    "equip time": 0.8,
+    "unequip time": 0.5,
+    "tether duration": 20,
+    "detection radius": 4,
+    "tether audio cue radius": 12.5,
+    "teleport audio cue radius": 42.5,
+    "fake decal duration": 30,
+    "title": "Gatecrash"
+  },
+  "차원 표류": {
+    "equip time": 0.8,
+    "cast delay": 0.4,
+    "duration": 10,
+    "detection radius": 15,
+    "unequip/return time": 0.8,
+    "title": "Dimensional Drift"
+  },
+  "구슬 보호막": {
+    "windup": 1,
+    "title": "Double Tap"
+  },
+  "섬광등": {
+    "title": "Flashbulb",
+    "primary flight": 3,
+    "alternate flight": 8,
+    "windup": 0.5,
+    "max blind duration": 1.5
+  },
+  "진형 붕괴": {
+    "title": "Displacement",
+    "primary flight": 3,
+    "alternate flight": 8,
+    "windup": 0.8,
+    "concuss duration": 1.4
+  },
+  "성운": {
+    "title": "Nebula / Dissipate",
+    "windup time": 0.75,
+    "radius": 4.75,
+    "duration": 14.25
+  }
+}

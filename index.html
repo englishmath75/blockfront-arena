@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="./style.css" />
+    <link rel="stylesheet" href="./valorant.css" />
+    <title>VALORANT · 플레이</title>
+  </head>
+  <body>
+    <canvas id="world" aria-label="3D 전장" tabindex="0"></canvas>
+    <canvas id="performance-layer" aria-hidden="true" hidden></canvas>
+    <main id="menu"></main>
+    <div id="hud" hidden>
+      <div id="radar">
+        <canvas id="map" width="180" height="180" aria-label="전장 미니맵"></canvas
+        ><span id="location"></span>
+      </div>
+      <canvas id="tablet-map" width="480" height="480" aria-label="전술 지도" hidden></canvas>
+      <div id="round"></div>
+      <div id="feed" aria-live="polite"></div>
+      <div id="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      <div id="message" role="status"></div>
+      <canvas id="killmark" width="300" height="300" aria-label="연속 처치" hidden></canvas>
+      <div id="status">
+        <div id="health"></div>
+        <div id="skills"></div>
+        <div id="ammo"></div>
+      </div>
+    </div>
+    <script type="module" src="./game.js"></script>
+  </body>
+</html>
