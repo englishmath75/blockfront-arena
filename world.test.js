@@ -7,6 +7,11 @@ import { sceneryVisibility } from './scenery-visibility.js';
 import { deviceMesh, drawDevice } from './field-effects.js';
 import { skinProfile } from './skin-levels.js';
 import skinList from './skins.json' with { type:'json' };
+import { worldResolution } from './world-resolution.js';
+import { referenceCues, playSkinEvent, stopAnimationAudio } from './skin-performance.js';
+import { installChaosCore } from './chaos-core.js';
+import skillSounds from './ability-sfx.json' with {type:'json'};
+import agentVoices from './ability-voice.json' with {type:'json'};
 import shotSources from './shot-matches.json' with { type:'json' };
 import finishLight from './finish-light.json' with { type:'json' };
 import finishes from './finisher-frames.json' with { type:'json' };
@@ -77,6 +82,68 @@ test('reference light tracks align with the finisher frame clock and isolated sh
     assert(level>=1 && at>=0 && duration>=.23 && score>=.78);
     const data=fs.readFileSync(new URL('./public/weapon-audio/'+id+'-discharge.ogg',import.meta.url));
     assert.equal(data.toString('ascii',0,4),'OggS');
+  }
+});
+
+test('a lower map resolution keeps the weapon framebuffer at display size',()=>{
+  let ratio=1.5,width=800,height=600,bound=null,blits=0;
+  const renderer={getPixelRatio:()=>ratio,getSize:v=>v.set(width,height),getRenderTarget:()=>bound,
+    setRenderTarget:t=>{bound=t;},render(){assert.equal(bound,null);blits++;}};
+  const output=worldResolution(renderer);
+  output.draw(.75,t=>{assert.equal(bound,t);assert.deepEqual([t.width,t.height],[600,450]);});
+  width=400;height=300;
+  output.draw(.75,t=>assert.deepEqual([t.width,t.height],[300,225]));
+  assert.throws(()=>output.draw(.75,()=>{throw Error('map');}));assert.equal(bound,null);
+  ratio=.75;output.draw(.75,t=>assert.equal(t,null));assert.equal(blits,2);output.dispose();
+});
+
+test('showcase shots use the same local stereo reports and respect upgrades', () => {
+  const samples=[];
+  const previous=globalThis.Audio;
+  globalThis.Audio=class {
+    cloneNode(){const a=new globalThis.Audio();a.src=this.src;return a;}
+    play(){samples.push(this.src);this.onended?.();return Promise.resolve();}
+    pause(){}
+  };
+  try {
+    for(const [family,count] of [['rogue',3],['preludetochaos',3],['singularityep9',3],['champions2023',1]]){
+      const item=skinList.vandal.find(s=>s.banner===family);
+      const tier=skinProfile(item,{level:2}),urls=referenceCues(tier,'shot');
+      assert.equal(urls.length,count);assert.deepEqual(referenceCues(skinProfile(item,{level:1}),'shot'),[]);
+      const at=samples.length;
+      for(let i=0;i<count+1;i++)assert(playSkinEvent(tier,'shot',.4,.8,null,'vandal'));
+      assert.deepEqual(samples.slice(at),[...urls,urls[0]]);
+      for(const url of urls)assert.equal(asset(url.slice(1)).toString('ascii',0,4),'OggS');
+    }
+  } finally {stopAnimationAudio();if(previous)globalThis.Audio=previous;else delete globalThis.Audio;}
+});
+
+test('Prelude reload ejects, replaces and seats the cell before the receiver closes', () => {
+  const item=skinList.vandal.find(s=>s.banner==='preludetochaos');
+  const root=new T.Group(),mount=new T.Group();root.add(mount);root.updateMatrixWorld(true);
+  const bounds=new T.Box3(new T.Vector3(-.5,-.15,-.04),new T.Vector3(.5,.15,.04));
+  for(const level of [2,3]){
+    const skin=skinProfile(item,{level});
+    const clean=installChaosCore(root,mount,skin,bounds,true,.3);
+    const core=root.userData.chaosCore;
+    assert.equal(core.enabled,level===3);assert.equal(referenceCues(skin,'reload').length,level===3?1:0);
+    if(core.enabled){
+      core.update('reload',.105,1);assert(core.orb.position.y>.05);
+      core.update('reload',.28,1);assert.equal(core.orb.visible,false);
+      core.update('reload',.397,1);assert(core.orb.visible && core.orb.position.y>.15);
+      core.update('reload',.50,1);assert(core.orb.visible && core.orb.position.y<.025);
+      core.update('inspect',.55,1);assert(core.orb.position.y>.08);
+      core.update('idle',0,2);assert(core.orb.position.y<.025);
+    }
+    clean();assert.equal(mount.children.length,0);
+  }
+});
+
+test('Sage slow orb casts with dedicated foley and has no voice fallback',()=>{
+  assert.deepEqual(skillSounds['둔화 구슬'],{equip:'ice-equip.ogg',cast:'ice-cast.ogg'});
+  assert.equal(agentVoices['둔화 구슬'],undefined);
+  for(const name of ['ice-equip','ice-cast','ice-break','ice-step-1','ice-step-2','ice-step-3']){
+    assert.equal(asset('agent-sfx/'+name+'.ogg').toString('ascii',0,4),'OggS');
   }
 });
 

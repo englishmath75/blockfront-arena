@@ -28,7 +28,7 @@ export function reachArm(rig, side, followElbow=false) {
     bone.parent.getWorldQuaternion(parentQ);
     bone.quaternion.copy(parentQ.invert().multiply(turn).multiply(jointQ));
   }
-  return (target) => {
+  return (target,elbowDirection) => {
     upper.getWorldPosition(origin);
     lower.getWorldPosition(mid);
     hand.getWorldPosition(end);
@@ -37,7 +37,8 @@ export function reachArm(rig, side, followElbow=false) {
     axis.subVectors(target, origin);
     const d = T.MathUtils.clamp(axis.length(), Math.abs(l1 - l2) + 0.0001, l1 + l2 - 0.0001);
     axis.normalize();
-    if(followElbow)pole.subVectors(mid,origin);
+    if(elbowDirection)pole.copy(elbowDirection);
+    else if(followElbow)pole.subVectors(mid,origin);
     else pole.set(-0.24, -0.85, side === 'L' ? -0.7 : 0.7);
     pole.addScaledVector(axis, -pole.dot(axis)).normalize();
     const along = (l1 * l1 + d * d - l2 * l2) / (2 * d);

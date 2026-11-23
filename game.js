@@ -310,6 +310,7 @@ function sound(kind, at) {
   const p = match?.player;
   const dist = at && p ? range(p, at) : 0;
   if (dist > 18) return;
+  if(kind==='hit'){fieldAudio(audio,'hit-impact',settings.volume*.22/(1+dist*.32));return;}
   if(kind==='equip'||kind==='inspect'){playHandling(audio,kind,settings.volume);return;}
   if (['shot', 'reload'].includes(kind) && p) {
     const source = at?.kit ? at : p,
@@ -344,7 +345,7 @@ function sound(kind, at) {
     source.onended = () => filter.disconnect();
   } else {
     source.type = 'triangle';
-    source.frequency.setValueAtTime(kind === 'hit' ? 690 : kind === 'reload' ? 245 : 445, time);
+    source.frequency.setValueAtTime(kind === 'reload' ? 245 : 445, time);
     source.connect(gain);
   }
   source.addEventListener(
@@ -4663,8 +4664,8 @@ menu.addEventListener('click', async (event) => {
     const area=get('weapon-turntable');soundOn();prepareSkin(skin,audio);
     closeCollectionMotion=collectionMotion(area,collectionGun,skin,agentId,d.preview,duration=>{
       if(!audio || !settings.volume)return;
-      if(!playSkinEvent(skin,d.preview,duration,settings.volume*.82,audio,collectionGun)){
-        if(d.preview==='reload')playBase(audio,collectionGun,'reload',settings.volume*.82,0);
+      if(!playSkinEvent(skin,d.preview,duration,settings.volume*.82,audio,collectionGun,0,Infinity)){
+        if(d.preview==='reload'||d.preview==='shot')playBase(audio,collectionGun,d.preview,settings.volume*.82,0);
         else playHandling(audio,d.preview,settings.volume*.82);
       }
     });

@@ -6,7 +6,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 export function buildVandalTrim(root, bone, skin, box, forward, aspect) {
   const family = skin.banner;
   if (
-    !['rogue', 'singularityep9', 'champions2023', 'araxys', 'neptune', 'reaver'].includes(family) ||
+    !['singularityep9', 'champions2023', 'araxys', 'neptune', 'reaver'].includes(family) ||
     !skin.name.includes('밴달')
   )
     return;
@@ -19,7 +19,6 @@ export function buildVandalTrim(root, bone, skin, box, forward, aspect) {
   const x = (u) => (forward ? box.min.x + u * length : box.max.x - u * length);
   const y = (v) => center.y + (0.5 - v) * height;
   const colors = {
-    rogue: ['#242a2c', '#555959', '#ed4533'],
     singularityep9: ['#1e182c', '#3f364c', '#d7a7ff'],
     champions2023: ['#29242b', '#c79839', '#ffe999'],
     araxys: ['#393433', '#9d8365', '#6fe3f1'],
@@ -77,81 +76,7 @@ export function buildVandalTrim(root, bone, skin, box, forward, aspect) {
     shell(points, width, depth, mat);
     shell(points, -width - depth, depth, mat);
   }
-  if (family === 'rogue') {
-    // Vent louvers, bevelled rail, charging handle, and the recessed indicators.
-    for (let j = 0; j < 5; j++) {
-      const a = 0.215 + j * 0.043;
-      pair(
-        [
-          [a, 0.122],
-          [a + 0.025, 0.122],
-          [a + 0.009, 0.238],
-          [a - 0.012, 0.218],
-        ],
-        0.027,
-        0.007,
-        1,
-      );
-    }
-    for (let j = 0; j < 6; j++) {
-      const u = 0.3 + j * 0.041;
-      shell(
-        [
-          [u, 0.065],
-          [u + 0.026, 0.065],
-          [u + 0.023, 0.1],
-          [u - 0.004, 0.1],
-        ],
-        -0.023,
-        0.046,
-        0,
-      );
-    }
-    pair(
-      [
-        [0.49, 0.1],
-        [0.64, 0.1],
-        [0.69, 0.17],
-        [0.53, 0.2],
-      ],
-      0.026,
-      0.009,
-      0,
-    );
-    pair(
-      [
-        [0.6, 0.14],
-        [0.625, 0.14],
-        [0.62, 0.16],
-        [0.596, 0.16],
-      ],
-      0.036,
-      0.002,
-      2,
-    );
-    shell(
-      [
-        [0.173, 0.16],
-        [0.173, 0.015],
-        [0.193, 0.025],
-        [0.198, 0.16],
-      ],
-      -0.008,
-      0.016,
-      0,
-    );
-    shell(
-      [
-        [0.176, 0.054],
-        [0.186, 0.054],
-        [0.186, 0.078],
-        [0.176, 0.078],
-      ],
-      -0.01,
-      0.02,
-      2,
-    );
-  } else if (family === 'singularityep9' || family === 'araxys' || family === 'reaver') {
+  if (family === 'singularityep9' || family === 'araxys' || family === 'reaver') {
     const alien = family === 'araxys',
       ghost = family === 'reaver';
     for (let j = 0; j < 4; j++) {
@@ -314,14 +239,7 @@ export function buildVandalTrim(root, bone, skin, box, forward, aspect) {
     pivot.add(mesh);
     meshes.push(mesh);
   });
-  if(family==='rogue' && skin.visualOn){
-    root.userData.drawGlow=(tag,t)=>{
-      const pulse=tag==='equip'?.62*Math.exp(-Math.pow((t-.52)/.12,2))+Math.exp(-Math.pow((t-.76)/.09,2)):0;
-      materials[2].emissiveIntensity=.95+2.8*pulse;
-    };
-  }
   return () => {
-    delete root.userData.drawGlow;
     pivot.removeFromParent();
     meshes.forEach((m) => m.geometry.dispose());
     materials.forEach((m) => m.dispose());

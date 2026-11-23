@@ -57,7 +57,8 @@ export function skinArticulation(rig, weapon, gun, skin, actions, baseline) {
         const [roll,lift,wrist,grip]=sample;
         const inspecting=tag==='inspect';
         hand.getWorldPosition(pivot);
-        move.set(-lift*.3,lift,lift*(tracks.balance-.26));
+        const reachScale=gun==='melee'?1:.68;
+        move.set(-lift*.3,lift,lift*(tracks.balance-.26)).multiplyScalar(reachScale);
         let recordedRoll=0;
         const capture=tracks.capture[tag];
         if(capture){
@@ -66,7 +67,7 @@ export function skinArticulation(rig, weapon, gun, skin, actions, baseline) {
           move.y-=(a[1]+(b[1]-a[1])*mix)*.23;
           recordedRoll=(a[2]+(b[2]-a[2])*mix)*.48;
         }
-        worldTurn.setFromEuler(angles.set(roll+recordedRoll,lift*(tracks.balance-.29),wrist*.18));
+        worldTurn.setFromEuler(angles.set((roll+recordedRoll)*reachScale,lift*(tracks.balance-.29),wrist*.18));
         // Rotate the two shoulder chains and the independent weapon socket
         // about the same grip so the trigger hand stays on the handle.
         for(const {bone} of assembly){

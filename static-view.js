@@ -36,10 +36,11 @@ export function staticView(renderer,scene,camera,scenery,sky,fields) {
   const clip=new T.Matrix4(), previous=new T.Matrix4(), size=new T.Vector2();
   let ready=false, fogNear=-1, fogFar=-1, fogColor=-1;
   return {
-    draw(){
+    draw(output=null){
       camera.updateMatrixWorld();
       clip.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);
-      renderer.getDrawingBufferSize(size);
+      if(output)size.set(output.width,output.height);
+      else renderer.getDrawingBufferSize(size);
       const color=scene.fog.color.getHex();
       const changed=!previous.equals(clip) || fogNear!==scene.fog.near ||
         fogFar!==scene.fog.far || fogColor!==color || size.x!==target.width || size.y!==target.height;
@@ -54,14 +55,14 @@ export function staticView(renderer,scene,camera,scenery,sky,fields) {
           const scans=fields.scanCount.value, ice=fields.iceCount.value;
           fields.scanCount.value=fields.iceCount.value=0;
           try{renderer.setRenderTarget(target);renderer.render(scene,camera)}
-          finally{fields.scanCount.value=scans;fields.iceCount.value=ice;renderer.setRenderTarget(null)}
+          finally{fields.scanCount.value=scans;fields.iceCount.value=ice;renderer.setRenderTarget(output)}
           ready=true;
         }
         renderer.render(copyScene,copyCamera);
         camera.layers.set(0);renderer.autoClear=false;scene.background=null;
         renderer.render(scene,camera);
       }finally{
-        renderer.setRenderTarget(null);
+        renderer.setRenderTarget(output);
         camera.layers.mask=mask;renderer.autoClear=clear;scene.background=background;
       }
     },

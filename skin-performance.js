@@ -16,6 +16,24 @@ const performanceAudio=take=>'/performances/'+take.key+'.ogg'+(take.key.endsWith
 function discharge(s) {
   if (s.soundOn && shots[s.id] && s.level>=shots[s.id][0]) return path+s.id+'-discharge.ogg';
 }
+const rogue = '1b9b0131-42fe-b6a7-d212-699b342ba642';
+const chaos = '522a264e-4ca7-adb0-6cf1-28b2ef938727';
+const takes = (family,count) => Array.from({length:count},(_,i)=>path + family + '-shot-' + (i+1) + '.ogg');
+const showcaseShots = new Map([
+  [rogue,takes('rogue',3)], [chaos,takes('chaos',3)],
+  ['d6c7ff28-467e-bb3f-3c0c-c5b9445e55ca',takes('singularity',3)],
+  ['b0f65660-4c51-13b7-9d01-e29a1e2879b0',takes('champions23',1)],
+]);
+const shotIndices = new Map();
+export function referenceCues(s, action) {
+  if (action === 'shot' && s.soundOn) {
+    if (s.level>=2 && showcaseShots.has(s.id)) return showcaseShots.get(s.id);
+    const sample = discharge(s);
+    if (sample) return [sample];
+  }
+  if (s.id === chaos && s.motionOn && action === 'reload') return [path + 'chaos-core-reload.ogg'];
+  return [];
+}
 export const palettes = {
   rogue: '#ee443f',
   champions23: '#f6c145',
@@ -38,8 +56,9 @@ export function prepareSkin(s,context) {
     if (filmed[s.family].audio !== false) prime('/effects/finish-'+s.family+'.ogg');
   }
   if(s.banner==='rogue' && s.soundOn)prime(path+'rogue-draw.ogg');
-  const reference=discharge(s);
-  if(reference && context) void decodeCue(context,reference);
+  const references=referenceCues(s,'shot');
+  for(const src of references)if(context)void decodeCue(context,src);else prime(src);
+  for(const src of referenceCues(s,'reload'))prime(src);
   loading ??= fetch('/weapon-audio/events.json?v=1.2')
     .then((r) => {
       if (r.ok) return r.json();
@@ -52,6 +71,7 @@ export function prepareSkin(s,context) {
       loading = null;
     });
   for (const a of ['fire', 'reload', 'equip','inspect']) {
+    if ((a==='fire' && references.length) || referenceCues(s,a).length) continue;
     const f = recordedAction(s, a, true);
     if (f) prime(performanceAudio(f));
     else if (motionAction(s,a)) prime('/motion/'+s.id+'-'+a+'.ogg');
@@ -64,7 +84,7 @@ export function prepareSkin(s,context) {
     }
     if(context && s.soundOn){
       const action=recordedAction(s,'shot',true);
-      const urls=action?[performanceAudio(action)]:reference?[reference]:s.performance?[path+s.id+'-shot.ogg']:
+      const urls=references.length?references:action?[performanceAudio(action)]:s.performance?[path+s.id+'-shot.ogg']:
         (library?.variants?.[s.id]?.shot??[]).filter(id=>localFiles?.has(id)).map(url);
       for(const src of urls)decodeCue(context,src);
     }
@@ -98,10 +118,12 @@ export function stopAnimationAudio() {
       voices.delete(voice);
     }
 }
-export function playSkinEvent(s, action, duration, volume, context, gun, balance=0) {
+export function playSkinEvent(s, action, duration, volume, context, gun, balance=0, maxWait=.24) {
   if (!s) return false;
-  const film = recordedAction(s, action, true);
-  const captured = !film && motionAction(s, action);
+  if (action === 'shot' && s.soundOn === false) return false;
+  const references = referenceCues(s,action);
+  const film = !references.length && recordedAction(s, action, true);
+  const captured = !references.length && !film && motionAction(s, action);
   if (
     !film &&
     (s.soundOn === false ||
@@ -110,7 +132,6 @@ export function playSkinEvent(s, action, duration, volume, context, gun, balance
   )
     return false;
   const recorded = s.performance && ['shot', 'reload'].includes(action);
-  const shot=action==='shot' && discharge(s);
   const recordings = library?.variants?.[s.id]?.[action];
   const sequence = recordings?.length
     ? [[0, recordings[Math.floor(Math.random() * recordings.length)]]]
@@ -118,9 +139,11 @@ export function playSkinEvent(s, action, duration, volume, context, gun, balance
   const rogueDraw=action==='equip' && s.banner==='rogue' && s.soundOn;
   if (!film && !rogueDraw && s.motionOn === false && ['inspect', 'equip', 'reload', 'light', 'heavy'].includes(action))
     return false;
-  const events = rogueDraw ? [[0,path+'rogue-draw.ogg']] : film
+  const index=action==='shot' && references.length>1 ? (shotIndices.get(s.id)??0) : 0;
+  if(action==='shot' && references.length>1)shotIndices.set(s.id,(index+1)%references.length);
+  const events = references.length ? [[0,references[index]]] : rogueDraw ? [[0,path+'rogue-draw.ogg']] : film
     ? [[0,performanceAudio(film)]]
-    : shot ? [[0,shot]] : captured
+    : captured
       ? [[0, '/motion/' + s.id + '-' + action + '.ogg']]
       : recorded
         ? [[0, path + s.id + '-' + action + '.ogg']]
@@ -129,7 +152,7 @@ export function playSkinEvent(s, action, duration, volume, context, gun, balance
   if(action==='shot' && context?.state==='running'){
     const then=context.currentTime;
     void decodeCue(context,events[0][1]).then(buffer=>{
-      if(context.currentTime-then>.18)return;
+      if(context.currentTime-then>maxWait)return;
       if(buffer) startSample(context,buffer,volume,balance);
       else playBase(context,gun,'shot',volume,balance);
     });
@@ -140,6 +163,7 @@ export function playSkinEvent(s, action, duration, volume, context, gun, balance
       a = template.cloneNode();
     if ((film || captured) && action === 'reload' && duration > 0)
       a.playbackRate = (film || captured).seconds / duration;
+    if(references.length && action==='reload' && duration>0) a.playbackRate=2.48/duration;
     a.volume = Math.max(0, Math.min(1, volume * 0.78));
     const voice = { a, action };
     voices.add(voice);
@@ -148,7 +172,7 @@ export function playSkinEvent(s, action, duration, volume, context, gun, balance
     const startAt=performance.now()+pct*.01*duration*1000;
     const start = () => {
       if (!voices.has(voice)) return;
-      if ((film || captured) && (action==='reload' || action==='inspect')) {
+      if ((references.length || film || captured) && (action==='reload' || action==='inspect')) {
         if (a.readyState<2) { a.addEventListener('canplay',start,{once:true}); a.load(); return; }
         const offset=Math.max(0,(performance.now()-startAt)*.001*a.playbackRate);
         if (offset>=a.duration) { done(); return; }

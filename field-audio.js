@@ -1,4 +1,4 @@
-const clips = ['recon-ping', 'ice-break', 'ice-step-1', 'ice-step-2', 'ice-step-3', 'pack-burst', 'pack-stick', 'rift-jump'];
+const clips = ['recon-ping', 'ice-break', 'ice-step-1', 'ice-step-2', 'ice-step-3', 'pack-burst', 'pack-stick', 'rift-jump', 'hit-impact'];
 const contexts = new WeakMap();
 
 export function prepareFieldAudio(ctx) {
@@ -6,7 +6,7 @@ export function prepareFieldAudio(ctx) {
   const bank = { steps: 0, files: new Map() };
   contexts.set(ctx, bank);
   for (const id of clips) {
-    bank.files.set(id, fetch('/agent-sfx/' + id + '.ogg')
+    bank.files.set(id, fetch('/agent-sfx/' + id + '.ogg?v=16')
       .then(response => {
         if (!response.ok) throw Error(id);
         return response.arrayBuffer();

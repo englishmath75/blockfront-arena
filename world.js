@@ -3,6 +3,7 @@ import { terrainFeedback } from './terrain-feedback.js';
 import { visionDistance } from './field-effects.js';
 import { drawScenery } from './scenery.js';
 import {playerVisibility} from './player-visibility.js';
+import { worldResolution } from './world-resolution.js';
 import { staticView } from './static-view.js';
 import { buildTerrain } from './terrain.js';
 import { makeMechanisms, geometry, switchPos, cable, inside } from './mechanisms.js';
@@ -65,6 +66,8 @@ export function createWorld(canvas, data) {
   const maxRatio=software ? .65 : Math.min(window.devicePixelRatio || 1,1.6);
   const fieldMaterials=[];
   const gl=renderer.getContext();
+  const resolution=worldResolution(renderer);
+  let sceneRatio=maxRatio,presented=0;
   let frameFence=null;
   function gpuReady(){
     if(!frameFence)return true;
@@ -72,6 +75,7 @@ export function createWorld(canvas, data) {
     gl.deleteSync(frameFence);frameFence=null;return true;
   }
   function submitted(){
+    presented++;
     if(!software)return;
     if(frameFence)gl.deleteSync(frameFence);
     frameFence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);gl.flush();
@@ -79,16 +83,24 @@ export function createWorld(canvas, data) {
   renderer.setPixelRatio(maxRatio);
   let windowStart=0,frameCount=0,fastWindows=0;
   function frameBudget(stamp,elapsed) {
-    if(software)return;
-    if (!windowStart || elapsed<=0) {windowStart=stamp;frameCount=0;fastWindows=0;return;}
+    if (!windowStart || elapsed<=0) {windowStart=stamp;frameCount=0;presented=0;fastWindows=0;return;}
     frameCount++;
     if(stamp-windowStart<800)return;
-    const mean=(stamp-windowStart)/frameCount, ratio=renderer.getPixelRatio();
-    fastWindows=mean<18 ? fastWindows+1 : 0;
+    const mean=(stamp-windowStart)/Math.max(1,software?presented:frameCount), ratio=sceneRatio;
+    presented=0;
+    fastWindows=mean<(software?22:18) ? fastWindows+1 : 0;
+    if(software){
+      // Raise the foreground only when completed GPU frames leave enough time.
+      const old=renderer.getPixelRatio(),display=mean>34?maxRatio:fastWindows>=4?.95:old;
+      if(Math.abs(display-old)>.005)renderer.setPixelRatio(display);
+      frameCount=0;windowStart=stamp;return;
+    }
     let next=ratio;
     if(mean>25)next=Math.max(.6,ratio*(mean>40?.78:.90));
     else if(fastWindows>=5){next=Math.min(maxRatio,ratio+.08);fastWindows=0;}
-    if(Math.abs(ratio-next)>.005)renderer.setPixelRatio(next);
+    sceneRatio=next;
+    const display=mean>38 && sceneRatio<=.7?sceneRatio:Math.min(maxRatio,Math.max(1,sceneRatio));
+    if(Math.abs(renderer.getPixelRatio()-display)>.005)renderer.setPixelRatio(display);
     frameCount=0;windowStart=stamp;
   }
   scene.add(new T.HemisphereLight('#fff5ec', '#afbed2', 2.25));
@@ -419,6 +431,10 @@ export function createWorld(canvas, data) {
     }
     return distance;
   }
+  function drawMap(output){
+    if(cachedView)cachedView.draw(output);
+    else renderer.render(scene,camera);
+  }
   function cameraRay() {
     camera.updateMatrixWorld();
     ray.setFromCamera({ x: 0, y: 0 }, camera);
@@ -426,7 +442,7 @@ export function createWorld(canvas, data) {
   }
   function dispose() {
     if(frameFence)gl.deleteSync(frameFence);
-    cachedView?.dispose();
+    cachedView?.dispose();resolution.dispose();
     for(const material of fieldMaterials)material.dispose();
     first.dispose();
     window.removeEventListener('resize', resize);
@@ -477,10 +493,7 @@ export function createWorld(canvas, data) {
     scene,
     camera,
     renderer,
-    renderWorld(){
-      if(cachedView)cachedView.draw();
-      else renderer.render(scene,camera);
-    },
+    renderWorld(){resolution.draw(sceneRatio,drawMap);},
     core,
     avatar,
     trace,

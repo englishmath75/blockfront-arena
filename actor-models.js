@@ -2,7 +2,8 @@ import { fitSkinOutline, muzzleAtMinX, muzzleSocket } from './skin-outline.js';
 import { recordedAction } from './recorded-weapon.js';
 import { motionAction, sampleMotion } from './weapon-motion.js';
 import {skillHandling} from './skill-handling.js';
-import {armFraming} from './arm-framing.js';
+import { lightViewmodel } from './viewmodel-light.js';
+import { coreHandling } from './chaos-core.js';
 import {gripContact} from './grip-contact.js';
 import { bindFingers } from './finger-pose.js';
 import { skinArticulation } from './skin-articulation.js';
@@ -15,7 +16,7 @@ import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
 import timing from './ability-times.json' with { type: 'json' };
 import library from './model-index.json' with { type: 'json' };
 import { WEAPONS } from './rules.js';
-import { sleeveEdges,frameGun } from './viewmodel-pose.js';
+import { sleeveEdges } from './viewmodel-pose.js';
 const korean = [
   '아스트라',
   '브리치',
@@ -304,12 +305,13 @@ export function previewWeapon(canvas,gun,skin){
   if(!canvas){if(carousel){carousel.ticket++;carousel.clean?.();carousel.renderer.dispose();carousel.renderer.forceContextLoss();carousel=null}return}
   if(!carousel){
     const renderer=new T.WebGLRenderer({antialias:true,alpha:true,powerPreference:'low-power'});
-    renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
+    renderer.setPixelRatio(Math.min(devicePixelRatio,2));
     carousel={renderer,ticket:0};
   }
   const viewer=carousel,ticket=++viewer.ticket;viewer.clean?.();
   const renderer=viewer.renderer;canvas.append(renderer.domElement);
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(31,1,.01,40),pivot=new T.Group();
+  lightViewmodel(scene);
   scene.add(pivot,new T.HemisphereLight(0xfffaf0,0x8ba7b4,2.1));
   const light=new T.DirectionalLight(0xfff4d9,2.1);light.position.set(-1,3,3);scene.add(light);
   let cleanup,model,drag;
@@ -405,6 +407,7 @@ export async function warmLoadout(items){
 export function firstPerson() {
   const scene = new T.Scene(),
     cam = new T.PerspectiveCamera(48, 1, 0.007, 12);
+  lightViewmodel(scene);
   scene.add(new T.HemisphereLight(0xfff5ed, 0x879ab6, 2.5));
   const sun = new T.DirectionalLight(0xffedda, 2);
   sun.position.set(1, 3, 2);
@@ -534,8 +537,7 @@ export function firstPerson() {
       gesture:skill && !native?.idle && !usesBow(skill)?skillHandling(rig,weapon,eye,skill):null,
       bow:usesBow(skill)?bowPresentation(rig,weapon,skill,eye):null,
       articulation:skill ? null : skinArticulation(rig,weapon,gun,skin,actions,fallback),
-      framing:frameGun(rig,weapon,eye,!skill && !abilityWeapons[gun] && gun!=='melee' && (!library.skins[skin?.id] || skin?.banner==='rogue')),
-      elbows:!skill?armFraming(rig):null,
+      core:skill ? null : coreHandling(rig,weapon),
       contact:skin && !skill ? gripContact(rig,weapon) : null,
       fingers: bindFingers(rig), equip: requestedAt };
     ready = true;
@@ -618,16 +620,15 @@ export function firstPerson() {
         tag = 'equip';
         ratio = (now - state.equip) / equipSeconds;
       }
-      state.elbows?.restore();
+      state.core?.restore();
       state.gesture?.restore();
       state.contact?.restore();
       state.fingers.restore();
-      state.framing?.restore();
       state.articulation?.restore();
-      pose(tag, T.MathUtils.clamp(ratio, 0, 1));
-      state.articulation?.update(bladeAttack && tag===attackPose ? attackName : tag,ratio,age);
-      state.framing?.update(tag,ratio,skin?.banner==='rogue');
-      if (!skill && skin && (tag==='inspect' || tag==='reload' || tag==='equip'))
+      const customCore=state.core && (tag==='reload' || tag==='inspect' || tag==='equip');
+      pose(customCore?'idle':tag, T.MathUtils.clamp(ratio, 0, 1));
+      if(!customCore)state.articulation?.update(bladeAttack && tag===attackPose ? attackName : tag,ratio,age);
+      if (!customCore && !skill && skin && (tag==='inspect' || tag==='reload' || tag==='equip'))
         if(!state.fingers.apply(skin, tag, ratio))state.contact?.apply(ratio);
       if(skill==='폭발 팩'){
         const cast=p.lastCast;
@@ -637,9 +638,10 @@ export function firstPerson() {
       state.weapon.userData.animate?.(now,tag,ratio);
       state.weapon.userData.drawGlow?.(tag,ratio);
       state.weapon.userData.foldBlade?.(tag,ratio);
+      state.core?.update(tag,ratio,now);
       state.gesture?.update(tag,ratio);
       state.bow?.update(charge,tag,ratio);
-      if(state.weapon.userData.spareMagazine)state.weapon.userData.spareMagazine.visible=tag==='reload' && ratio>.12 && ratio<.82;
+      if(state.weapon.userData.spareMagazine)state.weapon.userData.spareMagazine.visible=!customCore && tag==='reload' && ratio>.12 && ratio<.82;
       if (state.knives) {
         const mag = p.kit.special?.mag ?? 0;
         state.knives.forEach((knife, i) => {
@@ -654,7 +656,7 @@ export function firstPerson() {
         cam.position.z=aimPoint.z;
         cam.position.y=aimPoint.y+(gun==='headhunter'?.052:.083);
       }
-      const sample = !skill && sampleMotion(motionAction(skin, tag), ratio);
+      const sample = !customCore && !skill && sampleMotion(motionAction(skin, tag), ratio);
       if (sample) {
         // The capture measures the foreground relative to the playfield. Move the first-person
         // camera only; movement, crosshair, and hit envelopes remain in world coordinates.
@@ -670,7 +672,6 @@ export function firstPerson() {
         cam.position.z -= .026 * handling;
         cam.position.y+=.012;
       }
-      if(!p.ads)state.elbows?.update(cam);
       cam.fov = p.ads ? 43 : skill ? 59 : 67;
       state.spark.visible = !skill && !['melee', 'blades'].includes(gun) && age >= 0 && age < 0.072;
       return true;
@@ -679,8 +680,8 @@ export function firstPerson() {
       if (!this.visible) return;
       if(showcase){
         playerEye.copy(cam.position);
-        cam.translateZ(.32);
-        cam.translateY(-.14);
+        cam.translateZ(.18);
+        cam.translateY(-.075);
       }
       cam.aspect = aspect;
       cam.updateProjectionMatrix();

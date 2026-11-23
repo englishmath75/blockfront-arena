@@ -1,4 +1,6 @@
 import * as T from 'three';
+import {mergeVertices} from 'three/addons/utils/BufferGeometryUtils.js';
+import {buildVandalShell} from './vandal-shell.js';
 import mirrored from './mirrored-chromas.json' with { type: 'json' };
 import { butterflyHinge } from './folding-knife.js';
 import { buildVandalTrim } from './skin-trim.js';
@@ -21,7 +23,7 @@ async function readSections(url) {
   image.src = url;
   await image.decode();
   const canvas = document.createElement('canvas');
-  const w = (canvas.width = 128),
+  const w = (canvas.width = Math.min(224,image.naturalWidth)),
     h = (canvas.height = Math.max(4, Math.round((w * image.height) / image.width)));
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(image, 0, 0, w, h);
@@ -70,7 +72,7 @@ function joined(strip, neighbors) {
   )
     return hits[0];
 }
-const sides = 12;
+const sides = 16;
 const circle = Array.from({ length: sides }, (_, i) => {
   const t = (i * Math.PI * 2) / sides;
   const rounded = (v) => Math.sign(v) * Math.pow(Math.abs(v), 0.72);
@@ -112,6 +114,8 @@ export async function fitSkinOutline(root, url, skin) {
   const size = bounds.getSize(new T.Vector3()),
     center = bounds.getCenter(new T.Vector3());
   const muzzleLeft=muzzleAtMinX(root), mirroredArt=mirrored.includes(skin?.variant);
+  const shell=buildVandalShell(root,skin,art,bounds,muzzleLeft,mirroredArt,parts);
+  if(shell)return shell;
   const forward=muzzleLeft!==mirroredArt;
   const unit = size.x / (art.right - art.left);
   const worldX = (x) =>
@@ -120,7 +124,7 @@ export async function fitSkinOutline(root, url, skin) {
   // Voronoi assignment in rig space is computed once per small grid cell.
   const nearest = new Map();
   function attachment(x, y) {
-    const key = Math.floor(x / 4) + Math.floor(y / 3) * 64;
+    const key = Math.floor(x / 4) + Math.floor(y / 3) * (Math.ceil(art.w / 4) + 1);
     if (nearest.has(key)) return nearest.get(key);
     const px = worldX(Math.floor(x / 4) * 4 + 2),
       py = worldY(Math.floor(y / 3) * 3 + 1.5);
@@ -162,7 +166,12 @@ export async function fitSkinOutline(root, url, skin) {
         : 0;
     return groupFor(attachment(x, mid), section);
   }
-  for (let x = art.left; x < art.right; x++)
+  let sliceStart=performance.now();
+  for (let x = art.left; x < art.right; x++){
+    if ((x&15)===0 && performance.now()-sliceStart>6){
+      await new Promise(resolve=>setTimeout(resolve,0));
+      sliceStart=performance.now();
+    }
     for (const strip of art.columns[x]) {
       const group = stripGroup(x, strip),
         start = group.positions.length / 3,
@@ -198,8 +207,10 @@ export async function fitSkinOutline(root, url, skin) {
         }
       }
     }
+  }
   const map = new T.Texture(art.image);
   map.flipY = false;
+  map.anisotropy = 8;
   map.colorSpace = T.SRGBColorSpace;
   map.needsUpdate = true;
   const material = new T.MeshStandardMaterial({ map, roughness: 0.48, metalness: 0.17, side: T.DoubleSide });
@@ -217,9 +228,11 @@ export async function fitSkinOutline(root, url, skin) {
     geo.setAttribute('position', new T.Float32BufferAttribute(g.positions, 3));
     geo.setAttribute('uv', new T.Float32BufferAttribute(g.uv, 2));
     geo.setIndex(g.index);
-    geo.computeVertexNormals();
-    hinge?.shape(geo,g.transform);
-    const mesh = new T.Mesh(geo, material);
+    const surface = mergeVertices(geo, 1e-6);
+    geo.dispose();
+    surface.computeVertexNormals();
+    hinge?.shape(surface,g.transform);
+    const mesh = new T.Mesh(surface, material);
     hinge?.attach(mesh);
     mesh.userData.plate = g.section;
     if (g.section) {
@@ -232,7 +245,7 @@ export async function fitSkinOutline(root, url, skin) {
     meshes.push(mesh);
     if(loadedMag && reserveSocket){
       for(let p=g.bone;p;p=p.parent)if(p===loadedMag){
-        const copy=new T.Mesh(geo,material);
+        const copy=new T.Mesh(surface,material);
         copy.applyMatrix4(loadedMag.matrixWorld.clone().invert().multiply(g.bone.matrixWorld));
         spare.add(copy);break;
       }
