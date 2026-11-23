@@ -61,7 +61,7 @@ export function tickZone(d, owner, ctx) {
       dz = d.z - o.z,
       r = Math.hypot(dx, dz),
       enemy = ctx.hostile(owner, o);
-    if (r > d.radius || Math.abs(o.y - d.y) > d.radius) continue;
+    if(r>d.radius || Math.abs(o.y-d.y)>d.radius || d.kind==='knife' && Math.hypot(r,o.y+(o.height??1.53)*.5-d.y)>d.radius)continue;
     if (d.kind === 'knife') {
       if (enemy) o.suppressed = t + 8;
       continue;

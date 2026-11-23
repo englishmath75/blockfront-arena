@@ -44,6 +44,7 @@ const throws = {
   '연막 폭발': ['cloud', 24, 0, 2],
   '제로/포인트': ['knife', 27, 10, 7],
   '폭발 팩': ['satchel', 9, 15, 4],
+  '사이버 감옥':['cageDisc',15,14,6],
   '대미 장식': ['rocket', 35, 0, 4],
   '자극제 신호기': ['stim', 8, 15, 3],
   나노스웜: ['swarm', 17, 14, 4],
@@ -158,7 +159,7 @@ export function flight(a, dt, now, world, devices, owner) {
   a.x += norm.x * 0.035;
   a.y += norm.y * 0.035;
   a.z += norm.z * 0.035;
-  if (['slow','mosh','haunt','seize'].includes(a.type) && norm.y < .55) {
+  if (['slow','mosh','haunt','seize','cageDisc','fragment'].includes(a.type) && norm.y < .55) {
     vel.reflect(norm).multiplyScalar(.65);
     Object.assign(a,{vx:vel.x,vy:vel.y,vz:vel.z});
     return false;
@@ -187,7 +188,12 @@ export function flight(a, dt, now, world, devices, owner) {
     a.end = now + (a.type === 'flare' ? 0.5 : 0.8);
     return false;
   }
-  if (['paint', 'flash', 'curve', 'hawk'].includes(a.type)) {
+  if(a.type==='paint' || a.type==='bomblet'){
+    vel.reflect(norm).multiplyScalar(.47);
+    if(norm.y>.66 && vel.length()<1.7)a.stuck=true;
+    Object.assign(a,{vx:vel.x,vy:vel.y,vz:vel.z});return false;
+  }
+  if (['flash', 'curve', 'hawk'].includes(a.type)) {
     a.stuck = true;
     return false;
   }

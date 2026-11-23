@@ -231,7 +231,7 @@ export function collection(gun, equipped, options = {},agent='제트') {
       .join('') +
     '</select></label><div id="weapon-turntable" aria-label="3D 무기 미리보기"></div><small>드래그해서 회전</small>' +
     '<div class="collection-actions"><label>미리보기 요원 <select id="preview-agent">'+Object.keys(AGENTS).map(n=>'<option'+(n===agent?' selected':'')+'>'+escape(n)+'</option>').join('')+'</select></label>'+
-    [['model','외형 회전'],['equip','장착'],...(gun==='melee'?[]:[['shot','사격'],['reload','재장전']]),['inspect','살펴보기']].map(([id,label])=>'<button data-preview="'+id+'" aria-pressed="'+(id==='model')+'">'+label+'</button>').join('')+'</div>'+
+    [['model','외형 회전'],['equip','장착'],...(gun==='melee'?[['light','좌클릭 베기'],['heavy','우클릭 강공격']]:[['shot','사격'],['reload','재장전']]),['inspect','살펴보기']].map(([id,label])=>'<button data-preview="'+id+'" aria-pressed="'+(id==='model')+'">'+label+'</button>').join('')+'</div>'+
     (skinSources[selected]?'<a class="skin-reference" target="_blank" rel="noopener noreferrer" href="https://www.youtube.com/watch?v='+skinSources[selected]+'">스킨 시연 영상</a>':'')+
     skinPreviews(
       skinProfile(

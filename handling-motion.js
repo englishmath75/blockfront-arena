@@ -72,7 +72,9 @@ export function handlingTracks(gun, skin) {
       ];
     });
   }
-  return { ...(custom?.equip?{equip:fit(custom.equip,'equip')}:{}), ...(gun==='melee' ? meleeTracks(skin,balance,depth) : {}), inspect:fit(custom?.inspect??inspect[display],'inspect'),
+  const blade=gun==='melee'?meleeTracks(skin,balance,depth):undefined;
+  return { ...(custom?.equip?{equip:fit(custom.equip,'equip')}:{}), ...blade,
+    inspect:fit(blade?.inspect??custom?.inspect??inspect[display],'inspect'),
     reload:gun==='melee'?undefined:fit(custom?.reload??reload[load],'reload'),
     capture:{inspect:filmedPaths[recordedAction(skin,'inspect')?.key],reload:filmedPaths[recordedAction(skin,'reload')?.key]},
     point:display==='trace', balance, grip };

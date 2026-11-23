@@ -4,6 +4,7 @@ import {buildVandalShell} from './vandal-shell.js';
 import mirrored from './mirrored-chromas.json' with { type: 'json' };
 import { butterflyHinge } from './folding-knife.js';
 import { buildVandalTrim } from './skin-trim.js';
+import {collectionParts} from './collection-parts.js';
 
 export function muzzleSocket(root) {
   return root.getObjectByName('MuzzlePoint_Silencer') ?? root.getObjectByName('MuzzlePoint') ?? root.getObjectByName('Muzzle');
@@ -253,13 +254,14 @@ export async function fitSkinOutline(root, url, skin) {
   }
   if(spare.children.length){reserveSocket.add(spare);root.userData.spareMagazine=spare;}
   const mount = attachment(art.left + (art.right - art.left) * 0.52, art.top + (art.bottom - art.top) * 0.15);
+  const releaseParts=collectionParts(root,mount,skin,bounds,muzzleLeft,(art.bottom-art.top)/(art.right-art.left));
   const releaseTrim =
     skin &&
     buildVandalTrim(root, mount, skin, bounds, muzzleLeft, (art.bottom - art.top) / (art.right - art.left));
   return () => {
     delete root.userData.foldBlade;
     spare.removeFromParent();
-    releaseTrim?.();
+    releaseTrim?.();releaseParts?.();
     for (const mesh of meshes) {
       mesh.removeFromParent();
       mesh.geometry.dispose();

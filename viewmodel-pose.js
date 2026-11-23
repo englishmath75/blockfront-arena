@@ -9,7 +9,8 @@ export function sleeveEdges(rig){
     const geo=o.geometry;
     if(!geo.getAttribute('sleeveEdge')){
       const ix=geo.attributes.skinIndex,w=geo.attributes.skinWeight;
-      const weights=o.skeleton.bones.map(b=>/^(L|R)_(Shoulder|Clavicle)$/.test(b.name)?1:0);
+      const weights=o.skeleton.bones.map(b=>/^[LR]_(Clavicle|Shoulder)/i.test(b.name)?1:
+        /^[LR]_Upper(_MechPanel|arm_Mid)/i.test(b.name)?.68:/^[LR]_Upperarm_Low/i.test(b.name)?.24:0);
       const edge=new Float32Array(ix.count);
       for(let i=0;i<ix.count;i++)for(let j=0;j<4;j++)edge[i]+=weights[ix.getComponent(i,j)]*w.getComponent(i,j);
       geo.setAttribute('sleeveEdge',new BufferAttribute(edge,1));

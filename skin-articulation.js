@@ -4,6 +4,8 @@ import { reachArm } from './sova-bow.js';
 import wrists from './support-wrists.json' with { type:'json' };
 import { motionAction } from './weapon-motion.js';
 import { recordedAction } from './recorded-weapon.js';
+import handlingCues from './handling-cues.json' with {type:'json'};
+import knifeFamilies from './melee-families.json' with {type:'json'};
 
 const plateTravel = {singularityep9:.037,araxys:.024,reaver:.012,elderflame:.021,rogue:.005,champions2023:.004};
 export function skinArticulation(rig, weapon, gun, skin, actions, baseline) {
@@ -38,9 +40,14 @@ export function skinArticulation(rig, weapon, gun, skin, actions, baseline) {
   const reach=wristFrames && reachArm(rig,'L',true);
   const target=new T.Vector3(), delta=new T.Vector3(), camera=new T.Vector3(), orientation=new T.Quaternion();
   if(reach){bind('L_Shoulder',all);bind('L_Elbow',all)}
-  let modified=false;
+  const family=gun==='melee' && knifeFamilies[skin.id];
+  const pin=family==='karambit'?rig.getObjectByName('R_Index2'):hand;
+  const bladePosition=weapon.position.clone(),bladeRotation=weapon.quaternion.clone();
+  const bladeAxis=new T.Vector3(),pinWorld=new T.Vector3();
+  let pivoted=false,modified=false;
   return {
     restore() {
+      if(pivoted){weapon.position.copy(bladePosition);weapon.quaternion.copy(bladeRotation);pivoted=false;}
       if(!modified)return;
       for(const j of all){j.bone.quaternion.copy(j.rest); j.bone.position.copy(j.position)}
       modified=false;
@@ -54,7 +61,18 @@ export function skinArticulation(rig, weapon, gun, skin, actions, baseline) {
         modified=true;
         if(moving)sampleHandling(keys,t,sample);else sample.fill(0);
         sample[0]+=tracks.guard??0;
-        const [roll,lift,wrist,grip]=sample;
+        let [roll,lift,wrist,grip]=sample;
+        const actionName=tag==='alt attack'?'heavy':tag.startsWith('attack ')?'light':tag;
+        const sounds=skin.motionOn && handlingCues[skin.id]?.[actionName];
+        if(moving && sounds)for(const [time,phase] of sounds){
+          const proximity=1-Math.min(1,Math.abs(t-time)/.07);
+          const pulse=proximity*proximity*Math.min(1,t*14,(1-t)*14);
+          if(phase==='seat'){grip+=.38*pulse;lift+=.012*pulse;}
+          if(phase==='release'){grip-=.26*pulse;wrist-=.10*pulse;}
+          if(phase==='bolt')wrist+=.21*pulse;
+          if(phase==='charge')grip-=.30*pulse;
+          if(phase==='turn')roll+=.12*pulse;
+        }
         const inspecting=tag==='inspect';
         hand.getWorldPosition(pivot);
         const reachScale=gun==='melee'?1:.68;
@@ -91,6 +109,17 @@ export function skinArticulation(rig, weapon, gun, skin, actions, baseline) {
             bone.rotateX(release*[-.15,-.44,-.49,-.46,-.39][digit]+pinch*[.26,-.49,.23,.38,.45][digit]);
           }
           if(segment===1)bone.rotateZ(digit===0?-pressure*.34:(digit-2.1)*.145*(wrist-pressure));
+        }
+        if(inspecting && moving && pin && skin.motionOn && (family==='karambit'||family==='butterfly')){
+          bladePosition.copy(weapon.position);bladeRotation.copy(weapon.quaternion);pivoted=true;
+          const phase=T.MathUtils.smoothstep(t,.15,.47);
+          const back=family==='butterfly'?T.MathUtils.smoothstep(t,.54,.80):0;
+          pin.getWorldPosition(pinWorld);weapon.parent.worldToLocal(pinWorld);
+          pin.getWorldQuaternion(orientation);weapon.parent.getWorldQuaternion(parentTurn);
+          bladeAxis.set(0,0,1).applyQuaternion(orientation).applyQuaternion(parentTurn.invert()).normalize();
+          localTurn.setFromAxisAngle(bladeAxis,(phase-back)*Math.PI*2);
+          weapon.position.sub(pinWorld).applyQuaternion(localTurn).add(pinWorld);
+          weapon.quaternion.premultiply(localTurn);
         }
         const frames=wristFrames?.[tag];
         if(frames && eye && support && (motionAction(skin,tag) || recordedAction(skin,tag) || (skin.banner==='rogue' && tag==='equip'))){

@@ -324,6 +324,7 @@ function sound(kind, at) {
     const balance = at
       ? Math.max(-1, Math.min(1, ((at.x - p.x) * Math.cos(p.yaw) - (at.z - p.z) * Math.sin(p.yaw)) / 7))
       : 0;
+    if(kind==='shot' && (id==='tour'||id==='headhunter') && playSkillCue(source,id==='tour'?'역작':'헤드헌터','impact'))return;
     if (playBase(audio, id, kind, (settings.volume * 0.82) / (1 + dist * 0.32), balance)) return;
   }
   const gain = audio.createGain();
@@ -454,7 +455,7 @@ function respawn(p, slot = p.i) {
     healingPool: 100,
     regrowing: false,
     duel: null,
-    trappedBy: 0,
+    trappedBy: 0, cameraDart:null, dartRemoval:0,
     downedKayo: 0,
     overloadedUntil: 0,
     swingAt: 0,
@@ -470,7 +471,7 @@ function respawn(p, slot = p.i) {
     iceUntil: 0,
     stepSurface: '',
     queuedSkill: null,
-    armedSlot: null,
+    armedSlot: null, rocketUntil:0,
     beamUntil: 0,
     slideUntil: 0,
     sprinting: false,
@@ -1121,7 +1122,7 @@ function shoot(p, alt = false, follow = false) {
   if (
     !item ||
     p.ghost || p.down ||
-    p.reloading || p.netRemoval>0 ||
+    p.reloading || p.netRemoval>0 || p.dartRemoval>0 ||
     p.nextShot > now ||
     !active() ||
     p.phaseUntil > now ||
@@ -1548,7 +1549,11 @@ function deviceAction(p, d, interact=false) {
     d.end=now;return;
   }
   if (d.kind === 'anchor' || d.kind === 'passage' || d.kind === 'beacon') {
-    if (d.kind === 'anchor' && range(p, d) > 18) return;
+    if (d.kind === 'anchor' && range(p, d) > timing['랑데부']['anchor radius']) return;
+    if(d.kind==='anchor'){
+      for(const point of [p,d])Object.assign(addDevice('pulse',point.x,point.z,p.team,.62,2,2,2.4,'#efbb65',p,point.y),{kind:'rendezvousFold',name:'랑데부',cueAt:now});
+      p.nextShot=Math.max(p.nextShot,now+timing['랑데부']['recall time']);
+    }
     const at = world.structure.spawn(d.x, d.z, d.y);
     Object.assign(p, at, { vy: 0, vx: 0, vz: 0 });
     if (d.kind !== 'anchor') d.end = now;
@@ -1564,7 +1569,7 @@ function deviceAction(p, d, interact=false) {
     return;
   }
   if (d.kind === 'camera') {
-    p.pilot = p.pilot ? null : { kind: '스파이캠', x: d.x, y: d.y + 0.2, z: d.z, end: d.end, device: d.id };
+    p.pilot=p.pilot?null:{kind:'스파이캠',x:d.x,y:d.y+.10,z:d.z,end:d.end,device:d.id,next:d.dartReady??0};
     return;
   }
   if (d.kind === 'rose') {
@@ -1608,6 +1613,11 @@ function deviceAction(p, d, interact=false) {
   if (d.kind === 'interceptor') {
     d.on = !d.on;
     return;
+  }
+  if(d.kind==='cage'){
+    const r=timing['사이버 감옥']['cylinder radius'];
+    const cage=addDevice('smoke',d.x,d.z,p.team,7,2*r,2*r,5,'#d6f6fd',p,d.y);
+    Object.assign(cage,{kind:'cyberCage',name:'사이버 감옥',radius:r,inside:{},cueAt:now});d.end=now;return;
   }
   const fire = ['vine', 'swarm'].includes(d.kind);
   addDevice(
@@ -1668,7 +1678,9 @@ function pilotFire(p) {
     if (['스파이캠', '올빼미 드론'].includes(v.kind)) {
       if (target < 0 || target > distance || line.distanceToPoint(point) > 0.65) continue;
       o.revealTeam = p.team;
-      o.revealEnd = now + 4;
+      if(v.kind==='스파이캠'){
+        o.cameraDart={team:p.team,next:now+2};o.dartRemoval=0;o.revealEnd=now+.7;
+      }else o.revealEnd=now+4;
     } else if (hasSight(v, o, v.kind === '잠입 드론' ? 12 : 5)) {
       if (v.kind === '잠입 드론') {
         o.revealTeam = p.team;
@@ -1680,7 +1692,8 @@ function pilotFire(p) {
       }
     }
   }
-  v.next = now + 4;
+  v.next = now + (v.kind==='스파이캠'?timing['스파이캠']['dart cooldown']:4);
+  if(v.kind==='스파이캠'){const d=match.devices.find(d=>d.id===v.device);if(d)d.dartReady=v.next;}
   if (!['스파이캠', '올빼미 드론'].includes(v.kind)) p.pilot = null;
 }
 function ability(i, p = match.player, params = {}) {
@@ -1813,6 +1826,7 @@ function ability(i, p = match.player, params = {}) {
     dm() ||
     (!p.charges[i] &&
       !chained &&
+      !(slotName==='대미 장식' && p.rocketUntil>now) &&
       !(p.agent === '아스트라' && i < 3) &&
       !(slotName === '순풍' && p.dashExpires > now) &&
       !(
@@ -1828,7 +1842,7 @@ function ability(i, p = match.player, params = {}) {
     stat = timing[name] ?? {};
   const dir = aim(p.yaw, p.pitch),
     line = new T.Ray(vec(p.x, p.y + p.height, p.z), dir);
-  const castReach = stat['max deploy distance'] ?? 18;
+  const castReach=stat['max deploy distance']??stat['max cast radius']??(name==='랑데부'?stat['max cast distance']:undefined)??18;
   const mountInfo={};
   const distance = world.mapHit(line, castReach, match.devices,false,mountInfo),
     point = line.at(Math.max(0.1, distance - 0.55), vec(0, 0, 0));
@@ -2167,11 +2181,11 @@ function ability(i, p = match.player, params = {}) {
       v.end = now + 6.3;
     }
     p.vx = p.vz = 0;
-  } else if (deviceKind(name)) {
+  } else if (deviceKind(name) && name!=='사이버 감옥') {
     const kind = deviceKind(name),
       self = kind === 'beacon',
       pos = kind==='gatecrash' ? line.at(Math.min(1.3,Math.max(.1,distance-.24)),vec(0,0,0)) : self ? p : kind==='camera' ? line.at(Math.max(0,distance-.06),vec(0,0,0)) : point;
-    if(kind==='camera' && (!mountInfo.normal || distance>=castReach || Math.abs(mountInfo.surfaceDistance-distance)>.12))return;
+    if(kind==='camera' && (!mountInfo.normal || mountInfo.normal[1]>.60 || distance>=castReach || Math.abs(mountInfo.surfaceDistance-distance)>.12))return;
     const y = kind === 'camera' || kind === 'rose' ? pos.y : floorAt(pos.x, pos.z, pos.y + 0.4);
     if (!Number.isFinite(y)) return;
     const d = addDevice(
@@ -2187,7 +2201,7 @@ function ability(i, p = match.player, params = {}) {
       p,
       y,
     );
-    Object.assign(d, { kind, hp: 45, on: false, angle: p.yaw });
+    Object.assign(d, { name,kind,hp:45,on:false,angle:p.yaw });
     if(kind==='camera')d.normal=mountInfo.normal;
     if(kind==='gatecrash')Object.assign(d,{travel:!params.alt,travelSpeed:8,hp:20,end:now+stat['tether duration']});
     if (kind === 'rose' && params.alt && distance < 18) {
@@ -2487,7 +2501,8 @@ function ability(i, p = match.player, params = {}) {
   const recovery = stat['unequip time'] ?? 0;
   p.lastCast = { name, alt: !!params.alt, at: now, end: now + Math.max(0.28, recovery) };
   p.nextShot = Math.max(p.nextShot ?? 0, now + recovery);
-  if (!practice()) p.charges[i] = Math.max(0, p.charges[i] - cost);
+  if (!practice() && !(name==='대미 장식' && p.rocketUntil>now))p.charges[i]=Math.max(0,p.charges[i]-cost);
+  if(name==='대미 장식')p.rocketUntil=0;
   if (
     i === 2 &&
     !practice() &&
@@ -2560,6 +2575,10 @@ function tickProjectiles(dt) {
       )
     )
       return false;
+    if(a.type==='cageDisc'){
+      const disc=addDevice('deployed',a.x,a.z,p.team,240,.17,.17,.055,'#a8e5ff',p,base);
+      Object.assign(disc,{kind:'cage',name:a.name});return false;
+    }
     if (a.type === 'barrier') {
       const center = addDevice('meshNode', a.x, a.z, p.team, 30, 0.65, 0.65, 0.7, '#60c8ee', p, base);
       Object.assign(center,{name:'장벽망',cueAt:now+1});
@@ -2635,7 +2654,7 @@ function tickProjectiles(dt) {
       d.pulses = 2;
       d.normal = a.surfaceNormal;
     } else if (a.type === 'knife') {
-      for (const o of match.players) if (hostile(p, o) && range(a, o) < 15) o.suppressed = now + 8;
+      for (const o of match.players) if (hostile(p,o) && Math.hypot(a.x-o.x,a.y-o.y-o.height*.5,a.z-o.z)<15) o.suppressed=now+8;
       place('pulse', 0.3, 3, 2, '#ad91ff', a.y);
     } else if (a.type === 'cloud') place('cloud', 2.5, 6.7, 6.7, '#c6d8ee', a.y - 3.35);
     else if (a.type === 'slow') place('ice', timing[a.name].duration, 10, .08, '#7debd2');
@@ -2652,6 +2671,7 @@ function tickProjectiles(dt) {
       d.phoenix = a.name === '뜨거운 손';
     } else if (a.type === 'stim') place('stimField', 12, 8, 2.5, '#eeb452');
     else if (['flash', 'curve', 'hawk', 'flare'].includes(a.type)) {
+      let confirmed=false;
       for (const o of match.players)
         if (!o.down && hasSight(a, o, 24)) {
           const duration =
@@ -2659,8 +2679,10 @@ function tickProjectiles(dt) {
               ? 1 + 1.25 * Math.min(1, ((a.activatedAt ?? now) - a.created) / 0.75)
               : (timing[a.name]?.['max blind duration'] ?? timing[a.name]?.['max flash duration'] ?? 1.5);
           flashPlayer(o,a,duration);
+          if(hostile(p,o))confirmed=true;
         }
-      place('pulse', 0.16, 1.5, 1.4, '#fff5ce', a.y);
+      const light=place('pulse',0.26,1.5,1.4,'#fff5ce',a.y);
+      if(a.type==='hawk' && confirmed)Object.assign(light,{name:a.name,cueAt:now,audience:p.team});
     } else {
       const r = a.type === 'rocket' ? 6 : a.type === 'bomblet' ? 3 : 5,
         damage = a.type === 'rocket' ? 150 : a.type === 'shock' ? 75 : a.type === 'paint' ? 55 : 38;
@@ -2693,7 +2715,10 @@ function tickProjectiles(dt) {
       if(a.type==='satchel'){
         const flash=place('satchelBurst',.42,2*r,.15,'#ff9b30',a.y);
         flash.normal=a.surfaceNormal??[0,1,0];
-      }else place('pulse', 0.22, r * 1.3, 1.4, projectileColor[a.type] ?? '#ffc568', a.y - 0.55);
+      }else if(['paint','bomblet','rocket'].includes(a.type)){
+        const burst=place('pulse',a.type==='bomblet'?.37:.55,2*r,2*r,'#ff6840',a.y);
+        Object.assign(burst,{kind:'paintBurst',name:a.name,radius:r,cueAt:now});
+      }else place('pulse',0.22,r*1.3,1.4,projectileColor[a.type]??'#ffc568',a.y-.55);
     }
     return false;
   });
@@ -2721,7 +2746,7 @@ function drawProjectiles() {
         hawk: 'guiding-light',
         recon: 'recon-bolt',
         shock: 'shock-dart',
-        paint: 'paintshell',
+        paint: 'paintshell',cageDisc:'cyber-cage',
         knife: 'zeropoint',
         flash: 'flashdrive',
         satchel: 'blast-pack',mosh:'mosh-pit',net:'gravnet',barrier:'barrier-mesh',
@@ -2770,7 +2795,7 @@ function drawProjectiles() {
         const holder = new T.Group();
         m.add(holder);
         holder.scale.set(1 / m.scale.x, 1 / m.scale.y, 1 / m.scale.z);
-        attachProp(holder,slug,slug==='stealth-drone'?.49:slug==='thrash'?.96:.6,true);
+        attachProp(holder,slug,slug==='stealth-drone'?.49:slug==='thrash'?.96:slug==='trailblazer'?1.16:.6,true);
         m.userData.mount=holder;
         m.material.visible = false;
       }
@@ -2870,9 +2895,13 @@ function applyAction(p, a) {
       break;
     case 'arm':
       if (Number.isInteger(a.value) && a.value >= 0 && a.value < 4) {
-        p.queuedSkill = null;
-        p.armedSlot = a.value;
-        p.skillReady = now + (timing[AGENTS[p.agent].gear[a.value]]?.['equip time'] ?? 0);
+        const gear=AGENTS[p.agent].gear[a.value],stat=timing[gear]??{};
+        if(gear==='대미 장식' && !(p.rocketUntil>now)){
+          if(p.down || !active() || p.suppressed>now || dm() || !(p.charges[a.value]>0))break;
+          p.rocketUntil=now+stat['equip time']+stat['max duration'];
+          if(!practice()){p.charges[a.value]--;p.ult=0;}
+        }
+        p.queuedSkill=null;p.armedSlot=a.value;p.skillReady=now+(stat['equip time']??0);
       }
       break;
     case 'ability':
@@ -3003,6 +3032,10 @@ function step(dt) {
     }
     if (p.evolution && !p.down) p.hp = Math.min(100, p.hp + dt * 5);
     if (p.target) continue;
+    if(p.rocketUntil && p.rocketUntil<=now){
+      p.rocketUntil=0;
+      if(p.agent==='레이즈' && p.armedSlot===3){p.armedSlot=null;p.queuedSkill=null;if(p.local)disarm();}
+    }
     if (!p.down && p.queuedSkill && now >= p.skillReady) {
       const q = p.queuedSkill;
       p.queuedSkill = null;
@@ -3036,7 +3069,7 @@ function step(dt) {
         p,
         drone.y - radius,
       );
-      if (thrash) Object.assign(burst, { name: drone.kind, cueAt: now });
+      Object.assign(burst,{name:drone.kind,cueAt:now});
       for (const target of match.players) {
         if (target.down || (thrash && !hostile(p, target)) || !hasSight(drone, target, radius)) continue;
         if (thrash) target.detainedUntil = now + timing['요동봇']['detain duration'];
@@ -3090,6 +3123,11 @@ function step(dt) {
     }
     const input = heldRemotes.get(p.id);
     const pressed = p.local ? keys : new Set(input?.keys ?? []);
+    if(p.cameraDart){
+      if(now>=p.cameraDart.next){p.revealTeam=p.cameraDart.team;p.revealEnd=now+.7;p.cameraDart.next=now+2;}
+      p.dartRemoval=pressed.has('KeyF') && !(p.netUntil>now)?p.dartRemoval+dt:0;
+      if(p.dartRemoval>=1.5){p.cameraDart=null;p.dartRemoval=0;}
+    }
     if (p.netUntil > now) {
       p.netRemoval = pressed.has('KeyF') ? (p.netRemoval ?? 0) + dt : 0;
       if (p.netRemoval >= (timing['중력그물']['net removal channel time'] ?? 1.5)) {
@@ -3127,14 +3165,19 @@ function step(dt) {
       );
       if (allies.length) {
         const amount = Math.min(p.healingPool, 20 * dt);
-        for (const o of allies) o.hp = Math.min(100, o.hp + amount);
+        const glow=now>=(p.healCueAt??0);
+        for (const o of allies){
+          o.hp=Math.min(100,o.hp+amount);
+          if(glow)Object.assign(addDevice('pulse',o.x,o.z,p.team,.62,.88,.88,.85,'#73e999',p,o.y),{kind:'regrowth',target:o.id});
+        }
+        if(glow)p.healCueAt=now+.52;
         p.healingPool -= amount;
       }
     } else p.regrowing = false;
     if (p.agent === '제트') p.guiding = pressed.has('KeyC');
     if (['스카이', '피닉스', '페이드', '하버'].includes(p.agent)) p.guiding = pressed.has('SkillMouse');
     p.ads = p.local ? ads : !!input?.ads;
-    p.channel = !p.netRemoval && ((pressed.has('KeyF') && !interactable(world.mechanisms, p)) || pressed.has('Digit4'));
+    p.channel = !p.netRemoval && !p.dartRemoval && ((pressed.has('KeyF') && !interactable(world.mechanisms, p)) || pressed.has('Digit4'));
     if (!p.local && input) {
       p.yaw = input.yaw;
       p.pitch = input.pitch;
@@ -3447,6 +3490,12 @@ function step(dt) {
           else if (o.team === d.team) o.stimUntil = now + 1.5;
         }
     }
+    if(d.kind==='cyberCage')for(const o of match.players){
+      if(o.down || o.team===d.team)continue;
+      const inside=range(o,d)<d.radius && o.y+o.height>d.y && o.y<d.y+d.h;
+      if(inside && !d.inside[o.id])d.cueAt=now;
+      d.inside[o.id]=inside;
+    }
     if (d.type === 'pulse' || d.type === 'wall' || d.type === 'smoke') return true;
     const owner = match.players.find((o) => o.id === d.owner);
     const burn = d.type === 'fire' && now >= (d.next ?? 0);
@@ -3477,7 +3526,8 @@ function step(dt) {
         Math.abs(o.z - d.z) > d.d / 2
       )
         continue;
-      if (d.type === 'slow' || d.type === 'trap') o.tag = now + 0.7;
+      if(d.type==='slow' && (!d.radius || range(o,d)<=d.radius))o.slowUntil=now+.18;
+      else if(d.type==='trap')o.tag=now+.7;
       if (burn && Math.hypot(o.x - d.x, o.z - d.z) <= d.w / 2) {
         if (d.acid) o.vulnerable = now + 2;
         hurt(o, d.phoenix ? 15 : d.acid ? 3 : 10, owner);
@@ -3546,10 +3596,16 @@ function drawWorld(realTime) {
       const cueAt = d.cueAt ?? (d.type === 'groundWave' ? d.start : undefined);
       if (cueAt !== undefined && now >= cueAt && d.mesh.userData.lastSound !== cueAt) {
         d.mesh.userData.lastSound = cueAt;
-        if (now - cueAt < 0.55) playSkillCue(d, d.name, 'impact');
+        if (now - cueAt < 0.55 && (!d.audience || d.audience===match.player.team)) playSkillCue(d, d.name, 'impact');
       }
       if(specialVisual)continue;
       if(d.kind==='trapwire' && d.wireEnd){wireVisual(d,now,match.player);continue}
+      if(d.kind==='theft' || d.kind==='knife'){
+        const mesh=d.mesh;
+        if(!mesh.userData.requested){mesh.userData.requested=true;mesh.scale.setScalar(1);mesh.material.visible=false;
+          attachProp(mesh,d.kind==='theft'?'neural-theft':'zeropoint',d.kind==='theft'?.31:.34);}
+        mesh.position.set(d.x,d.y+(d.kind==='theft'?.19:.03),d.z);continue;
+      }
       if(d.kind==='camera'){
         const mesh=d.mesh;
         if(!mesh.userData.requested){
@@ -3588,7 +3644,7 @@ function drawWorld(realTime) {
         }
         if(mesh.userData.propHeight){
           mesh.position.y=d.y+mesh.userData.propHeight*.43;
-          const clip=d.kind==='dizzy' ? now<d.start?'_Intro':now-(d.firedAt??-10)<.32?'_Fire':'_Active' : d.chasing?'_Run':'_Idle';
+          const clip=d.kind==='boom-bot' ? d.impactAt?'Explode_Jump':d.chasing?'Alert_Idle':now<d.start?'Equip':'_Idle' : d.kind==='dizzy' ? now<d.start?'_Intro':now-(d.firedAt??-10)<.32?'_Fire':'_Active' : d.chasing?'_Run':'_Idle';
           mesh.userData.animateProp?.(clip,now-(clip==='_Fire'?d.firedAt:d.born));
           if(d.kind==='sonic-sensor' && d.normal){
             mesh.position.y=d.y;mesh.quaternion.setFromUnitVectors(worldForward,surfaceDirection.fromArray(d.normal).normalize());
@@ -3607,18 +3663,18 @@ function drawWorld(realTime) {
     const watch = observer();
     drawTrails(world,match.players,watch,now);
     const self = match.player;
-    const shadow = watch.nearsight > now,
+    const shadow=watch.nearsight>now,scoutView=watch.pilot?.kind==='정찰자',
       astral = watch === self && armedName() === '어둠의 장막' && alternateView,
       pilotView = watch.pilot?.kind === '잠입 드론';
     const pit = match.devices.find(
       (d) => d.type === 'pit' && range(watch, d) < 12 && Math.abs(watch.y - d.y) < 8,
     );
     world.scene.fog.near = pit ? 1 : shadow ? 2 : 62;
-    world.scene.fog.far = pit ? 8.1 : shadow ? 7 : 190;
-    world.scene.fog.color.set(pit ? '#54843d' : shadow ? '#281b47' : '#9ac6d3');
+    world.scene.fog.far=pit?8.1:shadow?7:scoutView?timing['정찰자']['vision radius']:190;
+    world.scene.fog.color.set(pit?'#54843d':shadow?'#281b47':scoutView?'#447533':'#9ac6d3');
     canvas.style.filter = astral
       ? 'sepia(.65) hue-rotate(200deg) saturate(1.8) brightness(.76)'
-      : pilotView
+      : scoutView ? 'sepia(.52) hue-rotate(49deg) saturate(1.5)' : pilotView
         ? 'saturate(.6) contrast(1.16)'
         : shadow
           ? 'brightness(.64)'
@@ -3665,7 +3721,7 @@ function drawWorld(realTime) {
       watch.championAura = watch.kills > 0 && match.players.every((o) => o.kills <= watch.kills);
     else watch.championAura = false;
     const liveSkill =
-      (watch === self ? armedName() : '') || (watch.agent==='요루' && watch.phaseUntil>now?'차원 표류':'') ||
+      (watch === self ? armedName() : '') || (watch.regrowing?'재생':'') || (watch.agent==='요루' && watch.phaseUntil>now?'차원 표류':'') ||
       (watch.lastCast?.end > now &&
       !['칼날 폭풍', '역작', '헤드헌터', '순풍', '고속 기어', '오버드라이브'].includes(watch.lastCast.name)
         ? watch.lastCast.name
@@ -4002,6 +4058,7 @@ function drawHud() {
   const prompt = p.down
     ? '관전 · 좌클릭으로 전환'
     : p.netUntil>now ? '[F 유지] 중력그물 제거 · '+Math.min(100,Math.floor((p.netRemoval??0)/1.5*100))+'%'
+    : p.cameraDart ? '[F 유지] 추적용 다트 제거 · '+Math.min(100,Math.floor(p.dartRemoval/1.5*100))+'%'
     : match.phase === 'buy'
       ? rush()
         ? '이번 라운드 무기 · ' + weaponFor(p).name
@@ -4057,7 +4114,8 @@ function drawHud() {
         : '';
   const line =
     armedSkill !== null
-      ? distanceSmokes.includes(armedName())
+      ? armedName()==='대미 장식' && p.rocketUntil>now ? '대미 장식 · '+Math.min(10,Math.ceil(p.rocketUntil-now))+'초 · 좌클릭 발사'
+      : distanceSmokes.includes(armedName())
         ? armedName() + ' · ' + smokeRange.toFixed(1) + ' m · 좌/우클릭 거리 조절 · 스킬 키 확정 · R 시점'
         : armedName() +
           ' · ' +
@@ -4487,7 +4545,7 @@ stateKeys.push(
   'mustKillBy',
   'vulnerable',
   'netUntil',
-  'trappedBy', 'downedKayo',
+  'trappedBy','downedKayo','cameraDart','dartRemoval','overloadedUntil','regrowing','healingPool','rocketUntil',
   'trailEnd','trailOrigin','trailTeam','netRemoval',
 );
 function snapshot() {
@@ -4612,8 +4670,10 @@ function receiveState(s) {
       hits = p.hits,
       inspectPrev = p.inspectUntil,
       reloadPrev = p.reloading,
+      rocketPrev=p.rocketUntil,
       killsPrev = p.kills;
     for (const k of stateKeys) if (entry[k] !== undefined) p[k] = entry[k];
+    if(p.local && p.agent==='레이즈' && armedSkill===3 && rocketPrev>0 && !p.rocketUntil)disarm();
     if(p.local && queuedActions.length && Number.isSafeInteger(entry.lastInputAction)){
       let consumed=0;
       while(consumed<queuedActions.length && queuedActions[consumed].id<=entry.lastInputAction)consumed++;
@@ -4738,6 +4798,7 @@ menu.addEventListener('click', async (event) => {
       if(!audio || !settings.volume)return;
       if(!playSkinEvent(skin,d.preview,duration,settings.volume*.82,audio,collectionGun,0,Infinity)){
         if(d.preview==='reload'||d.preview==='shot')playBase(audio,collectionGun,d.preview,settings.volume*.82,0);
+        else if(d.preview==='light'||d.preview==='heavy')recordedEffect('knife-'+d.preview,settings.volume*.82);
         else playHandling(audio,d.preview,settings.volume*.82);
       }
     });
@@ -5038,6 +5099,7 @@ window.addEventListener('keydown', (event) => {
       !active() ||
       dm() ||
       (!p.charges[i] &&
+        !(name==='대미 장식' && p.rocketUntil>now) &&
         !(name === '순풍' && p.dashExpires > now) &&
         !(p.agent === '소바' && i === 3 && p.volleyEnd > now && p.volley > 0) &&
         !(name === '폭발 팩' && match.arrows.some((a) => a.owner === p.id && a.type === 'satchel')))

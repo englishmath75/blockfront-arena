@@ -56,6 +56,15 @@ test('growing skill walls preserve the GPU buffers and handle a newly placed sin
   assert(Number.isFinite(geometry.boundingSphere.radius));mesh.material.dispose();geometry.dispose();
 });
 
+test('Cyber Cage obscures its round wall at eye height and leaves its interior visible',()=>{
+  const d={kind:'cyberCage',type:'smoke',x:0,y:0,z:0,radius:3.72,w:7.44,d:7.44,h:4,born:2,end:9};
+  const ray=(x,y,z)=>new T.Ray(new T.Vector3(x,y,z),new T.Vector3(1,0,0));
+  assert.equal(visionDistance(ray(0,1.6,0),d,3,2.5),2.5);
+  assert(Math.abs(visionDistance(ray(-8,.1,0),d,3,15)-4.28)<1e-6);
+  assert.equal(visionDistance(ray(-8,4.1,0),d,3,15),15);
+  assert.equal(visionDistance(ray(-8,2,0),d,9,15),15);
+});
+
 test('all equipped skins have closed 3D action curves and melee has no reload',()=>{
   const inspectKeys=new Set(), reloadKeys=new Set();
   for(const [gun,list] of Object.entries(skinList)) for(const item of list){

@@ -13,6 +13,7 @@ import times from './ability-times.json' with { type: 'json' };
 import demos from './ability-demos.json' with { type: 'json' };
 import abilitySounds from './ability-sfx.json' with { type: 'json' };
 import { motionAction, sampleMotion } from './weapon-motion.js';
+import { signatureTrack } from './signature-handling.js';
 import { tickGroundField } from './ground-fields.js';
 import chromas from './motion-chromas.json' with { type: 'json' };
 import joints from './finger-motion.json' with { type: 'json' };
@@ -163,6 +164,15 @@ function fieldScenario() {
   return { caster, target, ctx, devices };
 }
 
+test('ZERO/POINT checks the spherical suppression radius across map floors',()=>{
+  const {caster,target,ctx,devices}=fieldScenario();
+  Object.assign(target,{x:12,y:9.1,z:0,height:1.6});
+  const inside={...target,id:3,y:7};ctx.players.push(inside);
+  createZone('knife','제로/포인트',{x:0,y:0,z:0},caster,ctx);
+  ctx.time=devices[0].next;tickZone(devices[0],caster,ctx);
+  assert.equal(target.suppressed,undefined);assert.equal(inside.suppressed,ctx.time+8);
+});
+
 test('Seize captures once after windup and respects cover and late entry', () => {
   const {caster,target,ctx}=fieldScenario();
   Object.assign(target,{decayLost:0,deafUntil:0});
@@ -208,7 +218,9 @@ test('captured chromas and finger observations belong to playable motions', () =
   for (const skin of Object.values(skins).flat()) {
     for (const v of skin.variants ?? []) if (variants.delete(v.id)) {
       assert(Object.values(motions[skin.id] ?? {}).some(a=>a.tile) ||
-        ['reload','inspect'].some(action=>recordedAction(skinProfile(skin,{variant:v.id}),action)));
+        ['reload','inspect'].some(action=>{const s=skinProfile(skin,{variant:v.id});
+          return recordedAction(s,action) || signatureTrack(s,'vandal',action);
+        }));
       assert(fs.existsSync(new URL('./public/motion/chromas/'+v.id+'.png',import.meta.url)));
     }
   }

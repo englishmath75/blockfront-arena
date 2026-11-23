@@ -3,6 +3,7 @@ import {worldSculpture} from './ability-sculptures.js';
 
 const floor=new T.PlaneGeometry(1,1).rotateX(-Math.PI/2);
 const orb=new T.SphereGeometry(.5,32,20),wall=new T.BoxGeometry(1,1,1),curtain=new T.PlaneGeometry(1,1);
+const cylinder=new T.CylinderGeometry(.5,.5,1,64,1,true);
 const vertex=`varying vec2 uv0;varying vec3 local;
 void main(){uv0=uv;local=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`;
 const fragment=`varying vec2 uv0;varying vec3 local;
@@ -37,6 +38,27 @@ void main(){
     float net=max(filament((p.x+p.y)*4.+sin(p.y*6.)*.15,.018),filament((p.x-p.y)*4.,.018));
     float rim=line(r-front,.035);a=(.10+.55*net)*step(r,front)+rim*.96;
     c=mix(vec3(.16,.32,.84),vec3(.72,1.,1.),rim+net*.45);
+  }else if(style==15.){
+    float scan=filament(v.y*41.+sin(v.x*31.-t*2.)*.20-t*.6,.135);
+    float edge=exp(-min(v.y,1.-v.y)*28.);
+    a=.85+.12*scan+.13*edge;c=mix(vec3(.49,.64,.70),vec3(.8,1.,1.),edge+.20*scan);
+  }else if(style==16.){
+    float petals=.72+.19*sin(v.x*51.+v.y*9.+t*5.)+.11*cos(v.x*23.-v.y*17.);
+    float ink=sin(v.x*30.+v.y*17.+front*3.);a=petals*(1.-front*.6);
+    c=mix(vec3(1.,.13,.014),vec3(1.,.76,.032),smoothstep(-.35,.6,ink));
+    c=mix(c,vec3(.02,.85,.78),smoothstep(.80,.99,sin(v.x*42.-v.y*26.))*.9);
+  }else if(style==17. || style==18.){
+    float echo=filament(r*3.-front*3.,.065),pulse=line(r-front,.052);
+    a=step(r,1.)*(.16+.44*echo+.66*pulse);
+    c=style==17.?mix(vec3(.13,.025,.45),vec3(.70,.31,1.),echo+pulse):mix(vec3(.22,.10,.02),vec3(1.,.77,.31),echo+pulse);
+  }else if(style==20.){
+    float seed=fract(v.x*11.+floor(v.y*5.)*.39);
+    float leaf=pow(max(0.,1.-abs(seed-.5)*4.),2.)*pow(.5+.5*sin(v.y*20.-t*6.),4.);
+    float spiral=filament(v.y*2.-v.x*2.+front*.6,.055);
+    a=(leaf+.36*spiral)*sin(v.y*3.14159);c=mix(vec3(.06,.76,.49),vec3(.91,.99,.42),leaf);
+  }else if(style==19.){
+    float cut=filament(v.x*4.+v.y*.72-front,.03);
+    a=.12+.84*cut;c=mix(vec3(.42,.17,.09),vec3(1.,.83,.34),cut);
   }else if(style==13.){
     float stretch=v.x*10.+sin(v.y*6.+v.x*13.+t*4.)*.76;
     float veins=filament(stretch+sin(v.y*21.-t*4.)*.19,.031);
@@ -72,6 +94,12 @@ void main(){
 }`;
 const waveStyles={'균열':1,'지진 강타':2,'황혼':3};
 function surfaceStyle(d){
+  if(d.kind==='cyberCage')return 15;
+  if(d.kind==='paintBurst' || d.type==='sonar' && d.name==='폭발 봇')return 16;
+  if(d.type==='zoneEmitter' && d.kind==='fragment' || d.type==='sonar' && ['무력화/명령','제로/포인트'].includes(d.name))return 17;
+  if(d.type==='slow' && d.name==='트레이드마크')return 18;
+  if(d.kind==='rendezvousFold')return 19;
+  if(d.kind==='regrowth')return 20;
   if(d.type==='groundWave')return waveStyles[d.name];
   if(d.kind==='wingmanBlast')return 12;
   if(d.type==='meshPanel')return 4;
@@ -96,6 +124,7 @@ export function presentAbility(d,now){
   let sculpt,span,height;
   if(d.type==='haunt'){sculpt='귀체';span=.72;height=.39;}
   else if(kind==='prowler'){sculpt='추적귀';span=1.1;height=.37;}
+  else if(kind==='seeker'){sculpt='추적자';span=.61;height=.42;}
   else if(d.type==='meshNode'){sculpt='meshNode';span=d.parent ? .46:.68;height=span*.54;}
   else if(d.type==='globule'){sculpt=['green','yellow','blue','pink'][d.slot]??'blue';span=.41;height=.24;}
   if(sculpt){
@@ -106,6 +135,7 @@ export function presentAbility(d,now){
     const at=now-d.born,part=mesh.userData.sculpture;
     mesh.position.set(d.x,d.y+height,d.z);mesh.rotation.y=d.angle??0;
     if(kind==='prowler'){part.position.y=.04*Math.sin(at*15);part.rotation.z=.055*Math.sin(at*13);}
+    if(kind==='seeker'){part.position.y=.12*Math.sin(at*5);part.rotation.y=at*2.7;}
     if(d.type==='haunt'){part.position.y=.46*saturate(at/.65,0,1);part.rotation.y=.3*Math.sin(at*3);}
     if(d.type==='globule'){const reclaim=saturate((d.reclaim??0)/1.5,0,1);part.position.y=.055*Math.sin(at*4)+.26*reclaim;part.rotation.y=at*.95+reclaim*5;}
     if(d.type==='meshNode')part.rotation.y=at*.8;
@@ -114,7 +144,7 @@ export function presentAbility(d,now){
   const style=surfaceStyle(d);if(!style)return false;
   if(!mesh.userData.abilitySurface){
     mesh.material.dispose();mesh.material=makeMaterial(style);mesh.userData.abilitySurface=true;
-    mesh.geometry=style<=3 || style===6 || style===12?floor:style===4 || style===11?wall:orb;
+    mesh.geometry=style===15 || style===19?cylinder:style<=3 || [6,12,17,18].includes(style)?floor:style===4 || style===11?wall:orb;
     if(style<=3){
       const face=new T.Mesh(curtain,makeMaterial(style===3?13:14));mesh.add(face);mesh.userData.face=face;
       mesh.userData.disposeField=()=>face.material.dispose();
@@ -123,6 +153,15 @@ export function presentAbility(d,now){
   const uniforms=mesh.material.uniforms,age=now-d.born,dt=now-(d.start??d.born);
   uniforms.t.value=now;uniforms.age.value=age;uniforms.alpha.value=saturate((d.end-now)*8,0,1);
   mesh.visible=true;
+  if(style>=15 && style<=19){
+    const q=saturate(age/Math.max(.01,d.end-d.born),0,1);
+    if(style===15){const h=d.h*saturate(age/.16,.005,1);mesh.scale.set(d.w,h,d.d);mesh.position.set(d.x,d.y+h*.5,d.z);}
+    else if(style===16){const size=(.16+q*.87)*d.w;mesh.scale.set(size,size*.59,size);mesh.position.set(d.x,d.y+(kind==='paintBurst'?.30:d.h*.5),d.z);}
+    else if(style===19){mesh.scale.set(1.1+.8*q,2.2*(1-q*.38),1.1+.8*q);mesh.position.set(d.x,d.y+1.1,d.z);}
+    else{const size=d.radius?2*d.radius:d.w;mesh.position.set(d.x,d.y+(d.type==='sonar'?d.h*.5:.045),d.z);mesh.scale.set(size,1,size);}
+    uniforms.front.value=style===17 && d.type==='zoneEmitter'?Math.max(0,dt%1):style===18?(age%1.3)/1.3:q;
+    return true;
+  }
   if(style<=3){
     const v=saturate(dt*d.speed/d.reach,0,1);
     uniforms.front.value=dt<0?-1:v;
@@ -132,6 +171,8 @@ export function presentAbility(d,now){
     face.scale.set(1,h,1);face.position.set(0,h/2,.5-v);face.visible=dt>=0;
     face.material.uniforms.t.value=now;face.material.uniforms.alpha.value=uniforms.alpha.value;
     if(style===1 && dt>=0)uniforms.alpha.value*=Math.min(1,(d.end-now)*5);
+  }else if(style===20){
+    const progress=saturate(age/(d.end-d.born),0,1);mesh.scale.set(.88,.85,.88);mesh.position.set(d.x,d.y+.55+progress*.36,d.z);uniforms.front.value=progress;uniforms.alpha.value*=Math.sin(progress*Math.PI);
   }else if(style===4){
     const lift=saturate((age-.57)/.43,.001,1);
     mesh.scale.set(d.w,d.h*lift,d.d);mesh.position.set(d.x,d.y+d.h*lift*.5,d.z);

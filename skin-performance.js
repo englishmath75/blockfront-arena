@@ -6,6 +6,7 @@ import { finishLighting, prepareFinishLighting } from './finish-lighting.js';
 import shots from './shot-matches.json' with { type: 'json' };
 import filmed from './finisher-frames.json' with { type: 'json' };
 import * as T from 'three';
+import handlingCues from './handling-cues.json' with {type:'json'};
 let library, loading, localFiles;
 const voices = new Set(),
   clips = new Map();
@@ -21,10 +22,16 @@ const chaos = '522a264e-4ca7-adb0-6cf1-28b2ef938727';
 const takes = (family,count) => Array.from({length:count},(_,i)=>path + family + '-shot-' + (i+1) + '.ogg');
 const showcaseShots = new Map([
   [rogue,takes('rogue',3)], [chaos,takes('chaos',3)],
+  ['db91451c-4309-2c8c-eded-bf842d844e52',[1,2].map(i=>path+'neptune-preview-'+i+'.ogg')],
+  ['148d7f02-4259-9c17-a1a4-6fa220a56551',[1,2].map(i=>path+'magepunk-preview-'+i+'.ogg')],
+  ['8e762a1f-4102-b7ce-d6a0-9690c5bfe160',[path+'110196577.ogg']],
+  ['d8d5d7a1-4d81-8560-54bc-0692ab40f69b',[path+'32005410.ogg']],
   ['d6c7ff28-467e-bb3f-3c0c-c5b9445e55ca',takes('singularity',3)],
   ['b0f65660-4c51-13b7-9d01-e29a1e2879b0',takes('champions23',1)],
 ]);
-const shotIndices = new Map();
+const shotIndices=new Map();
+const checkedHandling=new Set(['db91451c-4309-2c8c-eded-bf842d844e52','148d7f02-4259-9c17-a1a4-6fa220a56551','8e762a1f-4102-b7ce-d6a0-9690c5bfe160','d8d5d7a1-4d81-8560-54bc-0692ab40f69b']);
+const motionAudio=(skin,action)=>'/motion/'+skin.id+'-'+action+'.ogg'+(checkedHandling.has(skin.id)?'?v=18':'');
 export function referenceCues(s, action) {
   if (action === 'shot' && s.soundOn) {
     if (s.level>=2 && showcaseShots.has(s.id)) return showcaseShots.get(s.id);
@@ -74,13 +81,12 @@ export function prepareSkin(s,context) {
     if ((a==='fire' && references.length) || referenceCues(s,a).length) continue;
     const f = recordedAction(s, a, true);
     if (f) prime(performanceAudio(f));
-    else if (motionAction(s,a)) prime('/motion/'+s.id+'-'+a+'.ogg');
+    else if (motionAction(s,a)) prime(motionAudio(s,a));
   }
   if (s.performance) for (const action of ['shot', 'reload']) prime(path + s.id + '-' + action + '.ogg');
   void loading.then(() => {
-    for (const ev of ['shot', 'reload']) {
-      const cue = library?.bySkin[s.id]?.[ev]?.[0];
-      if (cue && localFiles?.has(cue[1])) prime(url(cue[1]));
+    for (const ev of ['shot','reload','inspect','equip','light','heavy']) {
+      for(const cue of library?.bySkin[s.id]?.[ev]??[])if(localFiles?.has(cue[1]))prime(url(cue[1]));
     }
     if(context && s.soundOn){
       const action=recordedAction(s,'shot',true);
@@ -123,7 +129,10 @@ export function playSkinEvent(s, action, duration, volume, context, gun, balance
   if (action === 'shot' && s.soundOn === false) return false;
   const references = referenceCues(s,action);
   const film = !references.length && recordedAction(s, action, true);
-  const captured = !references.length && !film && motionAction(s, action);
+  // An isolated event sequence retains its original layers and does not include
+  // nearby shots or an ADS sound from an automatically segmented showcase.
+  const isolated=library?.bySkin[s.id]?.[action]?.length;
+  const captured=!references.length && !film && (!isolated || checkedHandling.has(s.id)) && motionAction(s,action);
   if (
     !film &&
     (s.soundOn === false ||
@@ -141,13 +150,17 @@ export function playSkinEvent(s, action, duration, volume, context, gun, balance
     return false;
   const index=action==='shot' && references.length>1 ? (shotIndices.get(s.id)??0) : 0;
   if(action==='shot' && references.length>1)shotIndices.set(s.id,(index+1)%references.length);
+  const timings=s.motionOn && handlingCues[s.id]?.[action];
   const events = references.length ? [[0,references[index]]] : rogueDraw ? [[0,path+'rogue-draw.ogg']] : film
     ? [[0,performanceAudio(film)]]
     : captured
-      ? [[0, '/motion/' + s.id + '-' + action + '.ogg']]
+      ? [[0,motionAudio(s,action)]]
       : recorded
         ? [[0, path + s.id + '-' + action + '.ogg']]
-        : sequence.filter(([,id])=>localFiles?.has(id)).map(([pct, id]) => [pct, url(id)]);
+        : sequence.filter(([,id])=>localFiles?.has(id)).map(([pct,id])=>{
+            const at=timings?.find?.(cue=>cue[2]===id)?.[0];
+            return [at===undefined?pct:100*at,url(id)];
+          });
   if (!events.length) return false;
   if(action==='shot' && context?.state==='running'){
     const then=context.currentTime;

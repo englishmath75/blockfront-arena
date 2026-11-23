@@ -23,7 +23,13 @@ export function meleeTracks(skin,balance,depth) {
     return [[0,0,0,0,0],[hit*.48,-r*.52,h*.30,-w*.34,.42],
       [hit,r*.70,h*.84,w*.73,.85],[alt?.43:.39,r,h,w,.65],[.67,r*.38,h*.41,w*.34,.47],[1,0,0,0,0]];
   }
-  return {guard:style==='straight'?0:roll*.27,'attack 4':stroke(false,-1),'attack 5':stroke(false,1),'attack 1':stroke(false,1),'attack 2':stroke(false,-1),'attack 3':stroke(false,1),
+  const flourish=style==='butterfly'||style==='karambit'||style==='fan',reachOut=style==='sword'||style==='staff';
+  const inspect=[[0,0,0,0,0],[.16,-roll*.38,rise*.42,-wrist*.41,.44],
+    [.31,roll*.86*weight,rise*reach,wrist*.8,flourish?-.78:.35],
+    [.47,roll*(flourish?-.85:.82),rise*(reachOut?1.08:.74),wrist*(flourish?-1:.58),flourish?.18:.47],
+    [.66,-heavy*.63*weight,lift*.66,-twist*.81,flourish?-.47:.57],
+    [.83,heavy*.31,lift*.39,twist*.36,.42],[1,0,0,0,0]];
+  return {inspect,guard:style==='straight'?0:roll*.27,'attack 4':stroke(false,-1),'attack 5':stroke(false,1),'attack 1':stroke(false,1),'attack 2':stroke(false,-1),'attack 3':stroke(false,1),
     'alt attack':stroke(true,1),equip:[[0,0,0,0,0],[.18,-roll*.61,rise*.64,-wrist*.51,-.43],
       [.42,roll,rise,wrist,.23],[.69,-roll*.28,rise*.32,-wrist*.18,.82],[1,0,0,0,0]]};
 }

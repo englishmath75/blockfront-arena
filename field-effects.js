@@ -257,6 +257,7 @@ export function drawDevice(d, now) {
     m.scale.set(d.w * f, d.h * f, d.d * f);
     u.opacity.value = 1 - f * 0.65;
   }
+
   if (['smoke', 'cloud', 'darkCover'].includes(d.type)) {
     const grow = T.MathUtils.clamp((now - (d.start ?? d.born)) / (d.type === 'cloud' ? 0.6 : 0.18), 0, 1);
     m.visible = grow > 0;
@@ -268,6 +269,17 @@ export function drawDevice(d, now) {
 }
 export function visionDistance(ray, d, now, limit) {
   if (d.end <= now || now < (d.start ?? d.born ?? 0)) return limit;
+  if(d.kind==='cyberCage'){
+    const x=ray.origin.x-d.x,z=ray.origin.z-d.z,v=ray.direction,r=d.radius;
+    const a=v.x*v.x+v.z*v.z,b=x*v.x+z*v.z,c=x*x+z*z-r*r,disc=b*b-a*c;
+    if(disc<0 || a<1e-8)return limit;
+    const root=Math.sqrt(disc);
+    for(const t of [(-b-root)/a,(-b+root)/a]){
+      const y=ray.origin.y+t*v.y;
+      if(t>=0 && t<=limit && y>=d.y && y<=d.y+d.h)return t;
+    }
+    return limit;
+  }
   if (['smoke', 'cloud', 'darkCover'].includes(d.type)) {
     const center = new T.Vector3(d.x, d.y + d.h / 2, d.z),
       v = ray.direction.clone(),

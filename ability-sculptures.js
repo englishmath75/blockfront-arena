@@ -103,9 +103,27 @@ function globule(kind,part){
     part(sphere,tint,s*.077,-.01,.003,.022,.052,.028,0,0,-s*.36);}
   part(ring,blue,0,-.012,.005,.094,.086,.097,1.28,.25);
 }
+const leafGreen=metal(0x3d8b4c),vein=light(0xc7ed61),sky=light(0x65e8ff);
+function carvedTrinket(kind,part,strand){
+  if(kind==='파편/탄' || kind==='무력화/명령'){
+    part(sphere,black,0,0,0,.061,.070,.058);
+    for(let i=0;i<3;i++)part(ring,i===1?sky:violet,0,(i-1)*.026,0,.059,.059,.059,Math.PI/2);
+    for(let i=0;i<5;i++){const a=i*Math.PI*.4;part(box,steel,.053*Math.sin(a),0,.053*Math.cos(a),.023,.087,.012,.13,a,0);}
+    return;
+  }
+  const seeker=kind==='추적자';
+  part(sphere,leafGreen,0,0,0,.057,.047,.059);
+  for(let i=0;i<7;i++){
+    const a=i*Math.PI*2/7,c=Math.cos(a),s=Math.sin(a);
+    part(sphere,i%2?leafGreen:lime,c*.046,.018,s*.046,.018,.053,seeker?.03:.017,s*.6,0,-c*.6);
+    strand(vein,[[c*.035,-.02,s*.035],[c*.056,.02,s*.056],[c*.070,.067,s*.07]],.0028);
+  }
+  part(sphere,seeker?blue:vein,0,.041,0,.026,.027,.026);
+}
 function prototype(kind){
   if(!cache.has(kind))cache.set(kind,bake((part,strand)=>{
-    if(['귀체','포박','추적귀','황혼'].includes(kind))nightmare(kind,part,strand);
+    if(['재생','추적자','파편/탄','무력화/명령'].includes(kind))carvedTrinket(kind,part,strand);
+    else if(['귀체','포박','추적귀','황혼'].includes(kind))nightmare(kind,part,strand);
     else if(['여진','섬광 폭발','균열','지진 강타'].includes(kind))bracer(kind,part);
     else if(['특별 배송','유도 일제 사격','아마겟돈'].includes(kind))transmitter(kind,part);
     else if(kind==='meshNode'){
@@ -118,9 +136,9 @@ function prototype(kind){
 }
 const held=new Set(['귀체','포박','추적귀','황혼','여진','섬광 폭발','균열','지진 강타','특별 배송','유도 일제 사격','아마겟돈']);
 export function sculptedHand(skill){
-  if(!held.has(skill))return;
+  if(!held.has(skill) && !['재생','추적자','파편/탄','무력화/명령'].includes(skill))return;
   const root=new T.Group(),prop=prototype(skill).clone();root.add(prop);root.userData.authoredSkill=true;
-  const floating=['귀체','포박','추적귀','황혼'].includes(skill);
+  const floating=['귀체','포박','추적귀','황혼','추적자','재생'].includes(skill);
   root.userData.animate=(time,tag,progress)=>{
     const casting=['throw','place','short throw','cast','fire'].includes(tag);
     prop.visible=!(floating && casting && progress>.43);
@@ -130,10 +148,10 @@ export function sculptedHand(skill){
 }
 export function authoredHandling(rig,prop,eye,skill){
   if(!eye || (!prop.userData.authoredSkill && skill!=='잠입 드론'))return;
-  const shade=['귀체','추적귀','포박','황혼'].includes(skill);
+  const shade=['귀체','추적귀','포박','황혼','추적자','재생'].includes(skill);
   const brace=['여진','균열','섬광 폭발','지진 강타'].includes(skill),drone=skill==='잠입 드론';
   const tablet=skill==='유도 일제 사격' || skill==='아마겟돈';
-  const wrist=brace && skill==='섬광 폭발' || tablet?'L':'R';
+  const wrist=brace && skill==='섬광 폭발' || tablet || skill==='파편/탄' || skill==='재생'?'L':'R';
   const hand=rig.getObjectByName(wrist+'_Hand'),elbow=rig.getObjectByName(wrist+'_Elbow');
   if(!hand || !elbow)return;
   const joints=[],fingers=[];
@@ -148,7 +166,7 @@ export function authoredHandling(rig,prop,eye,skill){
   const leftPole=new T.Vector3(-.45,-.8,-.74),rightPole=new T.Vector3(-.42,-.8,.82);
   const forwardQ=new T.Quaternion(),parentQ=new T.Quaternion(),rot=new T.Euler(),direction=new T.Vector3();
   rig.add(prop);
-  if(shade)prop.scale.setScalar(skill==='추적귀'?.52:skill==='황혼'?.82:.62);
+  if(shade)prop.scale.setScalar(['재생','추적자'].includes(skill)?1:skill==='추적귀'?.52:skill==='황혼'?.82:.62);
   if(brace)prop.scale.setScalar(.82);
   const restore=()=>{if(framed)joints.forEach((j,i)=>j.quaternion.copy(saved[i]));framed=false;};
   let framed=false;

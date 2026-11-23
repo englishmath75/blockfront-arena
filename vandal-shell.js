@@ -1,5 +1,7 @@
 import * as T from 'three';
 import { installChaosCore } from './chaos-core.js';
+import {signatureShell} from './signature-shells.js';
+import {collectionParts} from './collection-parts.js';
 
 const models = new Map([
   ['1b9b0131-42fe-b6a7-d212-699b342ba642','rogue'],
@@ -30,7 +32,8 @@ function panelArtwork(image) {
 // Side panels follow the collection artwork. The barrel, iron sights, rails,
 // magazine lips and stock braces have independent cross sections and materials.
 export function buildVandalShell(root, skin, art, bounds, muzzleLeft, mirror, original) {
-  const family=models.get(skin?.id);
+  const signature=skin?.name.includes('밴달') && ['neptune','chronovoid','kuronami','magepunk'].includes(skin.banner);
+  const family=signature?skin.banner:models.get(skin?.id);
   if(!family)return;
   const rogue=family==='rogue',len=bounds.max.x-bounds.min.x,center=bounds.getCenter(new T.Vector3());
   const aspect=(art.bottom-art.top)/(art.right-art.left);
@@ -45,18 +48,24 @@ export function buildVandalShell(root, skin, art, bounds, muzzleLeft, mirror, or
     silver:steel(rogue?0x797d80:0xb99a68,.30,.53),pad:steel(0x28292d,.83,.06),
     light:new T.MeshStandardMaterial({color:rogue?0xd84c35:0x76bbff,emissive:rogue?0xcd2e1a:0x3899ff,emissiveIntensity:skin.visualOn?.65:0}),
   };
+  if(signature){const edge={neptune:0xb9b8a6,magepunk:0x9e6e48,chronovoid:0x8a7970,kuronami:0x405264}[family];mats.edge.color.setHex(edge);mats.light.color.setHex(0x75dfea);mats.light.emissive.setHex(0x4fbddd);}
+  if(signature){
+    mats.silver.color.setHex(family==='magepunk'?0xc9ac82:family==='chronovoid'?0xc0a76f:0xaebfc9);
+    mats.dark.color.setHex(family==='neptune'?0x35444e:0x202634);
+  }
   const pools=new Map(),geometries=[];
   const y=v=>(.5-v)*aspect, coord=(u,v,z)=>new T.Vector3(u,y(v),z);
   function emit(geo,target,face,rim=face){
     const raw=geo.index?geo.toNonIndexed():geo,p=raw.attributes.position,n=raw.attributes.normal;
     for(let i=0;i<p.count;i+=3){
       const flat=Math.min(Math.abs(n.getZ(i)),Math.abs(n.getZ(i+1)),Math.abs(n.getZ(i+2)))>.92;
-      const mat=flat?face:rim;
+      const roof=signature && face==='paint' && n.getY(i)>.78;
+      const mat=flat || roof?face:rim;
       const key=target+'/'+mat;
       if(!pools.has(key))pools.set(key,{target,mat,position:[],normal:[],uv:[]});
       const b=pools.get(key);
       for(let j=i;j<i+3;j++){
-        const u=p.getX(j),v=.5-p.getY(j)/aspect;
+        const u=p.getX(j),v=.5-p.getY(j)/aspect+(roof?.025+Math.abs(p.getZ(j))*.48:0);
         b.position.push(u,p.getY(j),p.getZ(j));b.normal.push(n.getX(j),n.getY(j),n.getZ(j));
         b.uv.push((art.left+(mirror?1-u:u)*(art.right-art.left))/art.w,(art.top+v*(art.bottom-art.top))/art.h);
       }
@@ -78,7 +87,8 @@ export function buildVandalShell(root, skin, art, bounds, muzzleLeft, mirror, or
   function sleeve(u,v,end,rad,mat){rod([u,v,0],[end,v,0],rad,rad,mat);}
   function pins(u,v,z,r=.004){for(const sign of [-1,1])rod([u,v,sign*z],[u,v,sign*(z+.0016)],r,r,'silver','body',8);}
   function stripe(points,width,mat,target='body'){for(const z of [-width,width])panel(points,.0008,mat,mat,target,[],.0003,z);}
-  if(rogue){
+  if(signature)signatureShell(family,{panel,rod,sleeve,stripe,pins},skin);
+  else if(rogue){
     sleeve(.012,.192,.416,.013,'dark');
     sleeve(.004,.192,.097,.018,'black');sleeve(.092,.192,.119,.016,'silver');
     // The open cage has a dark barrel behind each real vent.
@@ -153,8 +163,9 @@ export function buildVandalShell(root, skin, art, bounds, muzzleLeft, mirror, or
   }
   if(rogue && skin.visualOn)root.userData.drawGlow=(tag,t)=>{mats.light.emissiveIntensity=.6+(tag==='equip'?2.5*Math.exp(-((t-.54)**2)/.012):0);};
   const releaseCore=installChaosCore(root,primary,skin,bounds,muzzleLeft,aspect);
+  const releaseParts=signature?collectionParts(root,primary,skin,bounds,muzzleLeft,aspect):null;
   return ()=>{
-    releaseCore?.();delete root.userData.spareMagazine;delete root.userData.drawGlow;
+    releaseCore?.();releaseParts?.();delete root.userData.spareMagazine;delete root.userData.drawGlow;
     spare.removeFromParent();pivots.forEach(p=>p.removeFromParent());geometries.forEach(g=>g.dispose());
     Object.values(mats).forEach(m=>m.dispose());texture.dispose();hidden.dispose();
   };

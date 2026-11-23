@@ -136,7 +136,7 @@ export function castField(name, p, ground, params, ctx) {
       .sort((a, b) => dist(a, ground) - dist(b, ground))[0];
     if (!body || !visible({ x: p.x, y: p.y + p.height, z: p.z }, body, 21)) return false;
     const d = add('agentPulse', body.x, body.z, 4.15, 0.42, 0.42, 0.45, '#81daec', p, body.y + 0.23);
-    Object.assign(d, { kind: 'theft', next: time + (stat['1st reveal windup time'] ?? 2), pulses: 2 });
+    Object.assign(d, { name,kind:'theft',next:time+stat['1st reveal windup time'],pulses:2 });
     return true;
   }
   if (name === '강철 정원' || name === '무력화/명령') {
@@ -160,6 +160,7 @@ export function castField(name, p, ground, params, ctx) {
       radius: stat.radius,
       pulses: kayo ? 4 : 1,
     });
+    d.name=name;
     if (kayo) p.overloadedUntil = p.stimUntil = time + windup + stat['overloaded duration'];
     return true;
   }
@@ -209,6 +210,8 @@ export function tickField(d, owner, dt, ctx) {
   }
   if (d.type === 'agentPulse') {
     if (d.kind === 'overload') {
+      if(owner.down || owner.downedKayo){d.end=time;return true;}
+      d.y=owner.y+.65;
       d.x = owner.x;
       d.z = owner.z;
     }
@@ -271,9 +274,10 @@ export function tickField(d, owner, dt, ctx) {
         )
       )
         return false;
-      if(d.kind==='wingman' && dist(o,d)>stat['max detection cone distance'] || d.kind==='prowler' && dist(o,d)>stat['detection distance'])return false;
+      if(['boom-bot','wingman'].includes(d.kind) && dist(o,d)>stat['max detection cone distance'] || d.kind==='prowler' && dist(o,d)>stat['detection distance'])return false;
       const forward = (o.x - d.x) * -Math.sin(d.angle) + (o.z - d.z) * -Math.cos(d.angle);
-      return ['turret', 'wingman', 'prowler', 'boom-bot'].includes(d.kind) ? forward > 0 : true;
+      if(d.kind==='boom-bot')return forward>=dist(o,d)*Math.cos(Math.PI/4);
+      return ['turret', 'wingman', 'prowler'].includes(d.kind) ? forward>0 : true;
     });
   const hit = target && dist(target, d);
   if (d.kind === 'lockdown') {
@@ -329,7 +333,7 @@ export function tickField(d, owner, dt, ctx) {
     if (target) {
       const bearing=Math.atan2(d.x-target.x,d.z-target.z);
       d.angle=d.kind==='wingman'?d.angle+Math.atan2(Math.sin(bearing-d.angle),Math.cos(bearing-d.angle))*Math.min(1,dt*13):bearing;
-      if(d.kind==='wingman')d.chasing=true;
+      if(d.kind==='wingman' || d.kind==='boom-bot')d.chasing=true;
       if (d.kind === 'alarmbot') d.speed = stat['movement speed'];
       if (d.kind === 'prowler') d.speed = stat['travel speeds'];
     } else if (d.kind === 'prowler' && owner.guiding) d.angle = owner.yaw;
@@ -337,7 +341,7 @@ export function tickField(d, owner, dt, ctx) {
     if (target && hit < reach) {
       d.impactAt ??= time + (stat['blast windup'] ?? stat['windup time'] ?? 0.35);
       if (time >= d.impactAt) {
-        ring(d, owner, reach);
+        ring(d,owner,d.kind==='boom-bot'?2:reach);
         if (d.kind === 'seeker' || d.kind === 'prowler')
           target.nearsight = time + (stat['nearsight duration'] ?? 3);
         if (d.kind==='seeker') target.slowUntil=time+stat['slow duration'];
@@ -372,7 +376,7 @@ export function tickField(d, owner, dt, ctx) {
       if (time >= d.triggerAt) {
         ring(d, owner, 5);
         if (d.kind === 'trademark')
-          add('slow', d.x, d.z, stat['slow duration'] ?? 4, 12, 12, 0.2, '#d6a65c', owner, d.y);
+          Object.assign(add('slow',d.x,d.z,stat['slow duration'],2*stat['slow radius'],2*stat['slow radius'],.2,'#d6a65c',owner,d.y),{name:d.name,radius:stat['slow radius']});
         else if (d.kind === 'shear') add('wall', d.x, d.z, 7, 5, 0.45, 3.5, '#aa91c0', owner, d.y);
         else {
           target.tether = { x: d.x, z: d.z, until: time + 3 };
