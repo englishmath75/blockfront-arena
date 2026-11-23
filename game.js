@@ -1020,7 +1020,9 @@ function eliminate(p, attacker, attack) {
   p.deaths++;
   p.ult++;
   if(p.ult>=AGENTS[p.agent].economy[3].points)p.charges[3]=1;
-  if(p.agent==='클로브' && p.charges[3])p.reviveWindow=now+2.75;
+  if(p.agent==='클로브'){
+    p.charges[2]=Math.min(1,p.charges[2]);p.reviveWindow=p.charges[3]?now+2.75:0;
+  }
   attacker.ult++;
   if (attacker.ult >= AGENTS[attacker.agent].economy[3].points) attacker.charges[3] = 1;
   if (match.core.carrier === p && match.core.state === 'carried') dropCore(p);
@@ -1756,18 +1758,23 @@ function ability(i, p = match.player, params = {}) {
   if (p.agent === '클로브' && i === 3 && active()) {
     if(p.phaseUntil>now && p.mustKillBy){
       if(now<p.reviveLock)return;
-      p.phaseUntil=p.reviveExit=now;p.nextShot=now+.8;p.mustKillBy=now+10;
+      p.phaseUntil=p.reviveExit=now;p.nextShot=now+.8;p.mustKillBy=p.nextShot+10;
       return;
     }
-    if (!p.down || (!practice() && !p.charges[3])) return;
+    if (!p.down || (!practice() && (!p.charges[3] || !(p.reviveWindow>now)))) return;
     Object.assign(p, {
       down: false,
       hp: 100,
       shield: 0,
       reviveWindow:0,phaseUntil:now+3.5,reviveLock:now+1.5,reviveExit:now+3.5,
-      nextShot:now+4.3,mustKillBy:now+13.5,
+      nextShot:now+4.3,mustKillBy:now+14.3,
       lastCast:{name:'아직 안 죽었어',at:now,end:now+3.5},
     });
+    for(const slot of ['primary','secondary']){
+      const item=p.kit[slot];if(!item)continue;
+      const used=Math.min(item.reserve,Math.max(0,WEAPONS[item.id].size-item.mag));
+      item.mag+=used;item.reserve-=used;
+    }
     p.charges[3]=0;p.ult=0;
     Object.assign(addDevice('pulse',p.x,p.z,p.team,1.5,1.6,1.6,2.3,'#ddb9ff',p,p.y),{kind:'cloveRevive',name:'아직 안 죽었어',cueAt:now+.7});
     abilityVoice(p, '아직 안 죽었어');
@@ -2019,7 +2026,7 @@ function ability(i, p = match.player, params = {}) {
   } else if (name === '활력 회복') {
     if (!(p.pickupUntil > now)) return;
     p.pickupUntil = 0;
-    p.overheal=Math.max(0,150-p.hp-p.shield);
+    p.overheal=Math.min(50,Math.max(0,150-p.hp-p.shield));
     p.overhealEnd=now+10;p.hasteUntil=Math.max(p.hasteUntil??0,now+3);
     Object.assign(addDevice('pulse',p.x,p.z,p.team,.7,1.15,1.15,1.7,'#f192ff',p,p.y),{kind:'pickUp',name,cueAt:now});
   } else if (name === '화음') {
@@ -2314,7 +2321,7 @@ function ability(i, p = match.player, params = {}) {
     const smoke = ['공중 연막', '계략', '웨이브폼'].includes(name),
       guided = name === '유도 일제 사격';
     const cap = smoke
-      ? Math.min(3, p.charges[i])
+      ? Math.min(name==='계략' && p.down?1:3,p.charges[i])
       : guided
         ? Math.min(2, p.charges[i])
         : name === '아마겟돈'
@@ -2328,7 +2335,7 @@ function ability(i, p = match.player, params = {}) {
               m &&
               Number.isFinite(m.x) &&
               Number.isFinite(m.z) &&
-              (name==='아마겟돈' && index===1 || Math.hypot(m.x-p.x,m.z-p.z)<=tabletRange(name)),
+              (name==='아마겟돈' && index===1 || Math.hypot(m.x-p.x,m.z-p.z)<=tabletRange(name,p.down)),
           )
       : [];
     if (!sites.length) return;
@@ -3166,7 +3173,7 @@ function step(dt) {
       }
     }
     if (p.mustKillBy > 0 && now >= p.mustKillBy) {
-      p.mustKillBy=0;environmentDeath(p);
+      p.mustKillBy=0;if(active() && !p.down)environmentDeath(p);
     }
     if(p.focusUntil && p.focusUntil<=now){p.focusUntil=0;p.isoShield=false;}
     if(p.driftStart && now>=p.driftStart){p.driftStart=0;if(!p.down)p.phaseUntil=p.driftExit;}
@@ -3186,6 +3193,11 @@ function step(dt) {
     if(p.rocketUntil && p.rocketUntil<=now){
       p.rocketUntil=0;
       if(p.agent==='레이즈' && p.armedSlot===3){p.armedSlot=null;p.queuedSkill=null;if(p.local)disarm();}
+    }
+    if(p.signatureAt && now>=p.signatureAt && (!p.down || p.agent==='클로브')){
+      const max=p.down?1:AGENTS[p.agent].economy[2].max || 1;
+      p.charges[2]=Math.min(max,p.charges[2]+1);
+      p.signatureAt=p.charges[2]<max?now+p.signatureInterval:0;
     }
     const posthumousCast=p.agent==='클로브' && p.queuedSkill?.i===2;
     if ((!p.down || posthumousCast) && p.queuedSkill && now>=p.skillReady) {
@@ -3271,11 +3283,6 @@ function step(dt) {
     }
     if (p.agent === '게코' && practice() && p.globeCooldowns)
       for (const slot of Object.keys(p.globeCooldowns)) p.charges[slot] = 1;
-    if (p.signatureAt && now >= p.signatureAt) {
-      const max = AGENTS[p.agent].economy[2].max || 1;
-      p.charges[2] = Math.min(max, p.charges[2] + 1);
-      p.signatureAt = p.charges[2] < max ? now + p.signatureInterval : 0;
-    }
     const input = heldRemotes.get(p.id);
     const pressed = p.local ? keys : new Set(input?.keys ?? []);
     owlPing(p,now);
@@ -4291,7 +4298,7 @@ function drawHud() {
     fire:settings.dynamic?p.bloom*140:0});
   const core = match.core;
   const prompt = p.down
-    ? (p.agent==='클로브' && active()?('E 계략'+(p.charges[3]?' · X 부활':'')+' · 좌클릭 관전 전환'):'관전 · 좌클릭으로 전환')
+    ? (p.agent==='클로브' && active()?('E 계략'+(p.charges[3] && p.reviveWindow>now?' · X 부활':'')+' · 좌클릭 관전 전환'):'관전 · 좌클릭으로 전환')
     : p.netUntil>now ? '[F 유지] 중력그물 제거 · '+Math.min(100,Math.floor((p.netRemoval??0)/1.5*100))+'%'
     : p.cameraDart ? '[F 유지] 추적용 다트 제거 · '+Math.min(100,Math.floor(p.dartRemoval/1.5*100))+'%'
     : match.phase === 'buy'
@@ -5353,6 +5360,7 @@ window.addEventListener('keydown', (event) => {
     const instant =
       (AGENTS[p.agent].info[i].startsWith('즉시') && !AGENTS[p.agent].info[i].includes('준비합니다. 발사')) ||
       [
+        '활력 회복','구슬 보호막',
         '순풍',
         '상승 기류',
         '폭발 팩',
@@ -5434,7 +5442,7 @@ canvas.addEventListener('mousedown', (event) => {
         return;
       }
       if (!alt) {
-        if (!(name==='아마겟돈' && marks.length) && Math.hypot(cursor.x-match.player.x,cursor.z-match.player.z)>tabletRange(name))
+        if (!(name==='아마겟돈' && marks.length) && Math.hypot(cursor.x-match.player.x,cursor.z-match.player.z)>tabletRange(name,match.player.down))
           return;
         if (['궤도 일격', '그림자 습격'].includes(name)) {
           cast({ marks: [{ ...cursor }] });
@@ -5523,7 +5531,7 @@ window.addEventListener('mousemove', (event) => {
   if(armedName()==='우주 장벽'){world.astralView?.pointer(event,canvas,unlocked);return;}
   if (tabletNames.includes(armedName())) {
     const rect = get('tablet-map').getBoundingClientRect();
-    const centred=centeredTablet(armedName()),extent=centred?tabletRange(armedName()):HALF;
+    const centred=centeredTablet(armedName()),extent=centred?tabletRange(armedName(),match.player.down):HALF;
     if (unlocked) {
       cursor.x=(centred?match.player.x:0)+((event.clientX-rect.left)/rect.width-.5)*2*extent;
       cursor.z=(centred?match.player.z:0)+((event.clientY-rect.top)/rect.height-.5)*2*extent;

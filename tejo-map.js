@@ -2,7 +2,7 @@ import {tabletRange} from './strike-path.js';
 export const isTejoMap=name=>name==='유도 일제 사격' || name==='아마겟돈';
 export const centeredTablet=name=>isTejoMap(name) || ['웨이브폼','계략','공중 연막','궤도 일격'].includes(name);
 export function drawTejoMap(canvas,map,half,p,name,marks,cursor){
-  const ctx=canvas.getContext('2d'),s=canvas.width,reach=tabletRange(name),scale=s/(2*reach);
+  const ctx=canvas.getContext('2d'),s=canvas.width,reach=tabletRange(name,p.down),scale=s/(2*reach);
   const X=x=>s/2+(x-p.x)*scale,Y=z=>s/2+(z-p.z)*scale;
   function circle(x,y,r,color,fill=false){
     ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.strokeStyle=ctx.fillStyle=color;
