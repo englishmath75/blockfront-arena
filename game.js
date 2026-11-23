@@ -14,7 +14,7 @@ import { alternateAttack, shotPattern, meleeDamage } from './attacks.js';
 import { recordedEffect, playHandling } from './skin-performance.js';
 import timing from './ability-times.json' with { type: 'json' };
 import { deviceMesh, drawDevice, lanePaths, warmFieldMaterials } from './field-effects.js';
-import { modelKey, inspectLength, attachProp, previewWeapon, warmLoadout } from './actor-models.js';
+import { modelKey, inspectLength, attachProp, previewWeapon, warmLoadout, warmWorldProps } from './actor-models.js';
 import {
   deviceKind,
   reusable,
@@ -4388,6 +4388,11 @@ async function load(roster) {
       if(token===transition)return loadedWorld.renderer.compileAsync(loadedWorld.first.scene,loadedWorld.first.cam);
     })
   ]);
+  if(token===transition && mode==='match'){
+    const active=()=>token===transition;
+    await warmWorldProps(loadedWorld,match.players.flatMap(player=>AGENTS[player.agent].gear),active);
+    if(active())await loadedWorld.first.warmSkills(loadedWorld.renderer,p,heldWeapon(p).id,currentSkin(p),AGENTS[p.agent].gear,now,weaponFor(p).reload,active);
+  }
   if(token===transition)await loadedWorld.warmSpawn(p,()=>token===transition);
   if(token===transition)drawWorld(performance.now());
   await nextFrame();

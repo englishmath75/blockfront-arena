@@ -116,7 +116,8 @@ export function coreHandling(rig,weapon) {
   const joints=['L','R'].flatMap(s=>['Shoulder','Elbow','Hand'].map(n=>rig.getObjectByName(s+'_'+n))).concat(fingers).filter(Boolean);
   const rest=joints.map(()=>new T.Quaternion()),grips=arms.map(()=>new T.Vector3()),turns=arms.map(()=>new T.Quaternion());
   const mount=weapon.parent, pos=new T.Vector3(), rot=new T.Quaternion(), scale=new T.Vector3();
-  const rightPole=new T.Vector3();
+  const shoulder=rig.getObjectByName('R_Shoulder'),shoulderRest=new T.Vector3();
+  const rightPole=new T.Vector3(),shoulderGoal=new T.Vector3();
   const pivot=new T.Vector3(), off=new T.Vector3(), target=new T.Vector3(),point=new T.Vector3(),handQ=new T.Quaternion();
   const change=new T.Quaternion(),angles=new T.Euler(),parentQ=new T.Quaternion(),worldQ=new T.Quaternion();
   let active=false;
@@ -124,11 +125,13 @@ export function coreHandling(rig,weapon) {
     restore(){
       if(!active)return;
       mount.add(weapon);weapon.position.copy(pos);weapon.quaternion.copy(rot);weapon.scale.copy(scale);
-      joints.forEach((j,i)=>j.quaternion.copy(rest[i]));active=false;
+      joints.forEach((j,i)=>j.quaternion.copy(rest[i]));
+      if(shoulder)shoulder.position.copy(shoulderRest);active=false;
     },
     update(tag,t,now){
       core.update(tag,t,now);
       if(!['reload','inspect','equip'].includes(tag))return;
+      if(shoulder)shoulderRest.copy(shoulder.position);
       active=true;pos.copy(weapon.position);rot.copy(weapon.quaternion);scale.copy(weapon.scale);
       joints.forEach((j,i)=>rest[i].copy(j.quaternion));
       arms.forEach((hand,i)=>{hand.getWorldPosition(grips[i]);hand.getWorldQuaternion(turns[i]);});
@@ -143,6 +146,11 @@ export function coreHandling(rig,weapon) {
       weapon.position.copy(rig.worldToLocal(point));rig.getWorldQuaternion(parentQ);
       weapon.quaternion.copy(parentQ.invert().multiply(change).multiply(worldQ));
       const carry=reload?pulse(.26,.385,.51,.64,t):0;
+      if(shoulder && carry){
+        shoulder.getWorldPosition(shoulderGoal);
+        shoulderGoal.z+=.155*carry;shoulderGoal.x-=.055*carry;
+        shoulder.position.copy(shoulder.parent.worldToLocal(shoulderGoal));
+      }
       if(reload && t>=.345 && t<.57){
         const descent=1-smooth(.408,.495,t);
         core.chamber.getWorldPosition(point);
@@ -157,7 +165,7 @@ export function coreHandling(rig,weapon) {
           core.chamber.getWorldPosition(point);point.x+=.03;point.y-=.047;point.z-=.029;target.lerp(point,latch*.62);
         }
         if(i===1 && carry){
-          rightPole.set(-.18,-.85+1.17*carry,.7+.95*carry);
+          rightPole.set(-1.40,-.85+.68*carry,.7+1.35*carry);
           reaches[i](target,rightPole);
         } else reaches[i](target);
         hand.parent.getWorldQuaternion(parentQ);

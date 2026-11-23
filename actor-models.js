@@ -3,6 +3,7 @@ import { recordedAction } from './recorded-weapon.js';
 import { motionAction, sampleMotion } from './weapon-motion.js';
 import {skillHandling} from './skill-handling.js';
 import { lightViewmodel } from './viewmodel-light.js';
+import { fieldProp } from './agent-fields.js';
 import { coreHandling } from './chaos-core.js';
 import {gripContact} from './grip-contact.js';
 import { bindFingers } from './finger-pose.js';
@@ -115,7 +116,9 @@ function boundsFor(g,model) {
 }
 export function attachProp(parent, slug, size, animated=false) {
   if (!library.models[slug]) return;
-  return asset(slug)
+  let scene=parent;
+  while(scene.parent)scene=scene.parent;
+  return (scene.userData.propAssets?.get(slug) ?? asset(slug))
     .then((g) => {
       if (!parent.parent) return;
       const model = cloneRig(g.scene),
@@ -404,6 +407,31 @@ export async function warmLoadout(items){
   }
   await Promise.allSettled([...ids].map(asset));
 }
+// Prepare the deployed or flying meshes for the agents actually in this room.
+export async function warmWorldProps(world,skills,isCurrent){
+  const fieldModels={'지원봇':'wingman','기절봇':'dizzy','인도하는 빛':'guiding-light','정찰자':'trailblazer'};
+  const airborne=new Set(['recon-bolt','shock-dart','stealth-drone','owl-drone','spycam','guiding-light',
+    'trailblazer','paintshell','zeropoint','blast-pack','flashdrive']);
+  const ids=new Set(skills.map(name=>fieldModels[name]??utilityItems[name])
+    .filter(id=>library.models[id] && (fieldProp(id) || airborne.has(id))));
+  const keep=new Map();world.scene.userData.propAssets=keep;
+  const staging=new T.Scene();staging.fog=world.scene.fog;
+  for(const light of world.scene.children)if(light.isLight)staging.add(light.clone());
+  await Promise.allSettled([...ids].map(async id=>{
+    const task=asset(id);keep.set(id,task);
+    try{
+      const model=await task;if(!isCurrent())return;
+      boundsFor(model,model.scene);
+      const sample=cloneRig(model.scene);staging.add(sample);
+    }catch(error){keep.delete(id);throw error;}
+  }));
+  try{
+    if(isCurrent() && keep.size)await world.renderer.compileAsync(staging,world.camera);
+  } finally {
+    staging.traverse(o=>{if(o.isSkinnedMesh)o.skeleton.dispose()});staging.clear();
+  }
+}
+
 export function firstPerson() {
   const scene = new T.Scene(),
     cam = new T.PerspectiveCamera(48, 1, 0.007, 12);
@@ -438,7 +466,7 @@ export function firstPerson() {
     if(state){
       rack.delete(stamp);state.equip=clock;scene.add(state.rig);return;
     }
-    if(rack.size>3){const [key,old]=rack.entries().next().value;rack.delete(key);release(old);}
+    if(rack.size>7){const [key,old]=rack.entries().next().value;rack.delete(key);release(old);}
     const arm = agents[agent] + '-fp',
       item = utilityItems[skill] ?? abilityWeapons[gun],
       native = library.models[arm]?.gestures?.[item],
@@ -562,7 +590,7 @@ export function firstPerson() {
   return {
     update(p, gun, skin, now, enabled, reloadSeconds, skill = '', charge = 0) {
       clock = now;
-      const stamp = [p.agent, gun, skin?.profileKey, skill].join('/');
+      const stamp = skill ? [p.agent,'skill',skill].join('/') : [p.agent,gun,skin?.profileKey].join('/');
       if (id !== stamp || (retryAt && performance.now() >= retryAt)) {
         if (stamp !== id) retryDelay = 450;
         id = stamp;
@@ -669,12 +697,30 @@ export function firstPerson() {
         const tall = Math.max(1, 1.70 / Math.max(.6, cam.aspect));
         const pullback = (gun==='vandal' ? .17 : gun==='melee' ? .065 : .115) + .10 * handling;
         cam.position.x -= pullback * Math.min(1.75,tall);
-        cam.position.z -= .026 * handling;
+        cam.position.z += (tag==='inspect'?.048:-.026) * handling;
         cam.position.y+=.012;
       }
       cam.fov = p.ads ? 43 : skill ? 59 : 67;
       state.spark.visible = !skill && !['melee', 'blades'].includes(gun) && age >= 0 && age < 0.072;
       return true;
+    },
+    async warmSkills(renderer,p,gun,skin,skills,now,reload,isCurrent){
+      const target=new T.WebGLRenderTarget(32,32);
+      try{
+        for(const skill of skills){
+          if(!isCurrent())break;
+          this.update(p,gun,skin,now,true,reload,skill);await this.loading;
+          if(!isCurrent() || !this.update(p,gun,skin,now,true,reload,skill))continue;
+          await renderer.compileAsync(scene,cam);if(!isCurrent())break;
+          const previous=renderer.getRenderTarget();
+          try{renderer.setRenderTarget(target);this.render(renderer,1);}
+          finally{renderer.setRenderTarget(previous);}
+          await new Promise(resolve=>requestAnimationFrame(resolve));
+        }
+      } finally {
+        target.dispose();
+        if(isCurrent()){this.update(p,gun,skin,now,true,reload);await this.loading;}
+      }
     },
     render(renderer, aspect, showcase=false) {
       if (!this.visible) return;

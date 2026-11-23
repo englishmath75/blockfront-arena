@@ -62,6 +62,8 @@ export function createWorld(canvas, data) {
   scene.add(sky);
 
   const renderer = new T.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  // In a release build synchronous GPU diagnostic reads can stall the first use of a skill.
+  renderer.debug.checkShaderErrors=import.meta.env.DEV;
   const software=softwareGraphics(canvas);
   const maxRatio=software ? .65 : Math.min(window.devicePixelRatio || 1,1.6);
   const fieldMaterials=[];
@@ -81,7 +83,7 @@ export function createWorld(canvas, data) {
     frameFence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);gl.flush();
   }
   renderer.setPixelRatio(maxRatio);
-  let windowStart=0,frameCount=0,fastWindows=0;
+  let windowStart=0,frameCount=0,fastWindows=0,slowWindows=0;
   function frameBudget(stamp,elapsed) {
     if (!windowStart || elapsed<=0) {windowStart=stamp;frameCount=0;presented=0;fastWindows=0;return;}
     frameCount++;
@@ -91,6 +93,12 @@ export function createWorld(canvas, data) {
     fastWindows=mean<(software?22:18) ? fastWindows+1 : 0;
     if(software){
       // Raise the foreground only when completed GPU frames leave enough time.
+      slowWindows=mean>52?slowWindows+1:0;
+      if(slowWindows>=2 && sceneRatio>.49){
+        sceneRatio=Math.max(.49,sceneRatio-.08);slowWindows=0;
+      }else if(fastWindows>=4 && sceneRatio<maxRatio){
+        sceneRatio=Math.min(maxRatio,sceneRatio+.08);fastWindows=0;
+      }
       const old=renderer.getPixelRatio(),display=mean>34?maxRatio:fastWindows>=4?.95:old;
       if(Math.abs(display-old)>.005)renderer.setPixelRatio(display);
       frameCount=0;windowStart=stamp;return;
