@@ -9,7 +9,8 @@ import { castField, tickField, fieldProp } from './agent-fields.js';
 import {presentAbility,playerFieldVisual} from './ability-surfaces.js';
 import {drawTrails} from './terror-trails.js';
 import {wirePath,drawWire} from './nanowire.js';
-import {drawTejoMap,isTejoMap} from './tejo-map.js';
+import {drawTejoMap,isTejoMap,centeredTablet} from './tejo-map.js';
+import {focus,damageCredit,eliminationRewards,applyDecay,neonDamage,inCloneFlash} from './agent-combat.js';
 import {AstralView} from './astral-view.js';
 import {worldSculpture} from './ability-sculptures.js';
 import {strikePath,insideStrip,tabletRange,sensorArea} from './strike-path.js';
@@ -21,7 +22,7 @@ import { alternateAttack, shotPattern, meleeDamage } from './attacks.js';
 import { recordedEffect, playHandling } from './skin-performance.js';
 import timing from './ability-times.json' with { type: 'json' };
 import { deviceMesh, drawDevice, lanePaths, warmFieldMaterials } from './field-effects.js';
-import { modelKey, inspectLength, attachProp, previewWeapon, warmLoadout, warmWorldProps } from './actor-models.js';
+import { character, modelKey, inspectLength, attachProp, previewWeapon, warmLoadout, warmWorldProps } from './actor-models.js';
 import {
   deviceKind,
   reusable,
@@ -442,7 +443,7 @@ function respawn(p, slot = p.i) {
     plasmaUntil: 0,
     deafUntil: 0,flashStyle:'',
     trailEnd: 0,
-    isoReady: 0,
+    beamHeard:-1,isoReady:0,focusUntil:0,damageLedger:{},slideKills:0,reviveLock:0,reviveExit:0,reviveWindow:0,driftStart:0,driftExit:0,beaconStim:0,pickupTarget:null,slideX:0,slideZ:0,beamRefill:0,
     isoShield: false,
     flow: null,
     lightRush: null,
@@ -765,7 +766,7 @@ function footSound(p,ice) {
   p.stepSurface=ice?'ice':'';
   if(ice)fieldSound('ice-step',p);else sound('step',p.local?undefined:p);
 }
-const fieldCues={ice:'ice-break',reconWave:'recon-ping',satchelBurst:'pack-burst',riftBurst:'rift-jump'};
+const fieldCues={ice:'ice-break',reconWave:'recon-ping',satchelBurst:'pack-burst'};
 function presentFieldCue(d) {
   const event=fieldCues[d.type];
   if (!event || d.mesh.userData.heard || audio?.state!=='running') return;
@@ -799,6 +800,7 @@ function walk(dt, p = match.player, keys = localKeys, prediction=false) {
     p.vy = p.vx = p.vz = 0;
     return;
   }
+  if(p.reviveLock>now || p.duel && now<p.duel.start){p.vx=p.vz=0;return;}
   if(p.astro && grounded(p)){p.vx=p.vz=0;return;}
   if (p.trappedBy || p.downedKayo) {
     p.vx = p.vy = p.vz = 0;
@@ -864,8 +866,8 @@ function walk(dt, p = match.player, keys = localKeys, prediction=false) {
     p.vz,
     dx,
     dz,
-    (p.sprinting ? 9.11 : SPEED[p.mode]) *
-      (p.ads ? (weaponFor(p).ads?.runSpeedMultiplier ?? 0.75) : weaponFor(p).move) *
+    (p.sprinting && grounded(p)?9.11:SPEED[p.mode]) *
+      (p.sprinting?1:p.ads ? (weaponFor(p).ads?.runSpeedMultiplier ?? 0.75) : weaponFor(p).move) *
       (p.hasteUntil>now?1.1:1) * (p.netUntil>now?.7:1) * (p.vineUntil>now?.85:1) * Math.min(p.detainedUntil > now ? 0.18 : p.tag > now ? 0.57 : 1,
         Math.max(p.iceUntil,p.slowUntil,p.hinderedUntil)>now ? .5 : 1),
     dt,
@@ -937,6 +939,7 @@ function eliminate(p, attacker, attack) {
     Object.assign(p, { downedKayo: shell.id, detainedUntil: now + 15, hp: 1, shield: 0, tag: now + 15 });
     return;
   }
+  const defeatAt={x:p.x,y:p.y,z:p.z};
   if (p.duel) {
     const rival = match.players.find((o) => o.id === p.duel.other);
     if (rival?.duel) rival.duel.returnAt = now + 2;
@@ -950,10 +953,9 @@ function eliminate(p, attacker, attack) {
     return;
   }
   if (attacker !== p) {
-    if (attacker.agent === '클로브') {
-      attacker.pickupUntil = now + 5;
-      attacker.mustKillBy = 0;
-    }
+    eliminationRewards(p,attacker,match.players,now,(iso)=>{
+      Object.assign(addDevice('deployed',defeatAt.x,defeatAt.z,iso.team,1.3,.52,.52,.52,'#c99aff',iso,defeatAt.y+1.78),{kind:'focusOrb',name:'구슬 보호막',hp:1});
+    });
     if (attacker.link && attacker.stimUntil > now) {
       const ally = match.players.find((o) => o.id === attacker.link && !o.down);
       if(ally && ally!==attacker && ally.link===attacker.id)attacker.harmonyUntil=ally.harmonyUntil=attacker.hasteUntil=ally.hasteUntil=attacker.stimUntil=ally.stimUntil=now+timing['화음']['buff duration'];
@@ -974,7 +976,7 @@ function eliminate(p, attacker, attack) {
     attacker.beamAmmo = 40;
     attacker.fuel = 100;
   }
-  if(['피닉스','허시'].includes(attacker.agent) && hostile(attacker,p) && attacker.charges[2]<AGENTS[attacker.agent].economy[2].max){
+  if(['피닉스','허시','요루'].includes(attacker.agent) && hostile(attacker,p) && attacker.charges[2]<AGENTS[attacker.agent].economy[2].max){
     attacker.activeSignatureKills=(attacker.activeSignatureKills??0)+1;
     if(attacker.activeSignatureKills>=2){attacker.charges[2]++;attacker.activeSignatureKills=0;}
   }
@@ -1017,6 +1019,8 @@ function eliminate(p, attacker, attack) {
   p.respawnAt = now + 3;
   p.deaths++;
   p.ult++;
+  if(p.ult>=AGENTS[p.agent].economy[3].points)p.charges[3]=1;
+  if(p.agent==='클로브' && p.charges[3])p.reviveWindow=now+2.75;
   attacker.ult++;
   if (attacker.ult >= AGENTS[attacker.agent].economy[3].points) attacker.charges[3] = 1;
   if (match.core.carrier === p && match.core.state === 'carried') dropCore(p);
@@ -1049,6 +1053,7 @@ function hurt(p, amount, attacker, attack) {
     amount -= used;
     if (amount <= 0) return;
   }
+  damageCredit(p,attacker,now);
   if (attacker && attacker !== p) p.lastAttacker = { id: attacker.id, at: now };
   amount *= p.vulnerable > now ? 2 : 1;
   const absorbed = Math.min(p.shield, Math.round(amount * 0.66));
@@ -1069,7 +1074,9 @@ function presentStrike(p) {
       if (!custom)
         recordedEffect(e.weapon === 'blades' ? 'blade-throw' : e.alt ? 'knife-heavy' : 'knife-light', volume);
     }
-  } else if (e.weapon !== 'overdrive') {
+  } else if(e.weapon==='overdrive'){
+    if(near<33 && now-(p.beamHeard??-1)>.13){playSkillCue(p,'오버드라이브','impact');p.beamHeard=now;}
+  } else {
     sound('shot', p.local ? undefined : p);
     if (p.local) match.flash = now + 0.06;
   }
@@ -1144,7 +1151,7 @@ function shoot(p, alt = false, follow = false) {
     (p.jammedUntil > now && p.selected === 'primary')
   )
     return;
-  if (p.beamUntil > now) {
+  if (p.beamUntil>now && p.sprinting && !p.beamHolstered && !(p.suppressed>now)) {
     if (p.beamAmmo <= 0) {
       if (!p.beamRefill) p.beamRefill = now + 0.5;
       if (now < p.beamRefill) return;
@@ -1168,11 +1175,12 @@ function shoot(p, alt = false, follow = false) {
     p.strike = {
       weapon: 'overdrive',
       at: now,
-      origin: beam.origin.toArray(),
+      origin:beam.at(.43,new T.Vector3()).add(vec(.15*Math.cos(p.yaw),-.15,-.15*Math.sin(p.yaw))).toArray(),
       ends: [beam.at(reach, new T.Vector3()).toArray()],
     };
     presentStrike(p);
-    if (victim) hurt(victim, 18, p);
+    if(victim){const h=beam.origin.y+beam.direction.y*reach-victim.y;hurt(victim,neonDamage(reach,h>victim.height*.86?'head':h<victim.height*.37?'legs':'body'),p);}
+    if(!p.beamAmmo)p.beamRefill=now+.5;
     return;
   }
   if (p.sprinting && !(p.slideUntil > now)) return;
@@ -1243,7 +1251,7 @@ function shoot(p, alt = false, follow = false) {
       base,
       aim(p.yaw + Math.cos(spin) * cone, p.pitch + Math.sin(spin) * cone + (blade ? 0 : p.bloom * 0.43)),
     );
-    const impact = {};
+    const impact={shooter:p.id,team:p.team};
     let nearest = world.mapHit(line, stats.range, match.devices, false, impact),
       hit = null,
       zone = 'bodyDamage';
@@ -1286,17 +1294,19 @@ function shoot(p, alt = false, follow = false) {
         stats.damageRanges.find((r) => nearest < r.rangeEndMeters)?.bodyDamage ?? stats.damage,
       );
     if (!hit && impact.device?.hp) {
-      impact.device.hp -= stats.damage;
+      if(impact.device.kind==='decoy' && impact.device.team===p.team)continue;
+      impact.device.hp-=impact.device.kind==='decoy'?impact.device.hp:stats.damage;
       if (impact.device.hp <= 0) {
         const d = impact.device;
-        if (d.kind === 'decoy') {
+        if(d.kind==='focusOrb'){focus(p,now);d.end=now;playSkillCue(p,'구슬 보호막','impact');}
+        else if (d.kind === 'decoy') {
           d.type = 'wallFlash';
           d.travel = false;
           d.angle = Math.atan2(p.x - d.x, p.z - d.z);
           d.start = now + 0.6;
           d.next = d.start;
           d.end = d.start + 0.12;
-          d.flashDuration = 2;
+          d.flashDuration=2;d.cueAt=d.start;
           d.radius = 20;
         } else d.end = now;
       }
@@ -1327,13 +1337,13 @@ function reload(p) {
   p.burstRemaining = 0;
   p.inspectUntil = 0;
   if (p.local) stopAnimationAudio();
-  p.reloadDuration=stats.reload*(p.hinderedUntil>now?2:1)/(p.harmonyUntil>now?1.1:1);
+  p.reloadDuration=stats.reload*(p.hinderedUntil>now?2:1)/(p.focusUntil>now?1.25:p.beaconStim>now?1.15:p.harmonyUntil>now?1.1:1);
   p.reloading=now+p.reloadDuration;
   sound('reload', p.local ? undefined : p);
 }
 function updateWeapon(p, dt) {
   if(p.spreadRecovery && now>=p.spreadRecovery){p.bloom=0;p.spreadRecovery=0}
-  else if(!p.spreadRecovery)p.bloom = Math.max(0, p.bloom - dt * (p.hinderedUntil>now?.016:.032)*(p.harmonyUntil>now?1.1:1));
+  else if(!p.spreadRecovery)p.bloom = Math.max(0, p.bloom - dt * (p.hinderedUntil>now?.016:.032)*(p.beaconStim>now?1.15:p.harmonyUntil>now?1.1:1));
   if (!p.reloading || now < p.reloading) return;
   const weapon = heldWeapon(p);
   const need = Math.min(weapon.reserve, weaponFor(p).size - weapon.mag);
@@ -1362,7 +1372,7 @@ function equip(slot, p = match.player) {
   }
   p.burstRemaining = 0;
   p.reloading = 0;
-  p.drawDuration=weaponFor(p).equip*(p.hinderedUntil>now?2:1)/(p.harmonyUntil>now?1.1:1);
+  p.drawDuration=weaponFor(p).equip*(p.hinderedUntil>now?2:1)/(p.beaconStim>now?1.15:p.harmonyUntil>now?1.1:1);
   p.nextShot = now + p.drawDuration;
   p.bloom = 0;
 }
@@ -1478,7 +1488,7 @@ function addDevice(type, x, z, team, duration, w, d, h, color, owner, baseY) {
   match.devices.push(device);
   if (!isGuest()) presentFieldCue(device);
   if (
-    type === 'lane' &&
+    type === 'lane' && !skillAudio['추월 차선']?.cast &&
     !match.devices.some(
       (v) =>
         v !== device &&
@@ -1600,10 +1610,10 @@ function deviceAction(p, d, interact=false) {
     return;
   }
   if(d.kind==='gatecrash'){
-    if(d.lock>now)return;
+    if(d.lock>now || p.suppressed>now || !active() || p.down)return;
     const fake=interact;
     const burst=addDevice('riftBurst',d.x,d.z,p.team,1.2,.8,.8,1.4,'#3e74ff',p,d.y);
-    burst.kind='riftBurst';
+    Object.assign(burst,{kind:'riftBurst',name:'관문 충돌',cueAt:now});
     if(fake){const mark=addDevice('riftMark',d.x,d.z,p.team,30,.65,.65,.04,'#344dff',p,d.y);mark.kind='riftMark'}
     else{
       p.destination=world.structure.spawn(d.x,d.z,d.y);p.teleportAt=now+.5;
@@ -1631,7 +1641,7 @@ function deviceAction(p, d, interact=false) {
     return;
   }
   if (d.kind === 'decoyMark') {
-    d.kind = 'decoy';
+    d.kind='decoy';d.born=now;d.cueAt=now;
     d.type = 'decoy';
     d.hp = 150;
     d.travel = true;
@@ -1742,10 +1752,11 @@ function pilotFire(p) {
   if (!['스파이캠', '올빼미 드론'].includes(v.kind)) p.pilot = null;
 }
 function ability(i, p = match.player, params = {}) {
-  if (p.detainedUntil > now) return;
+  if (p.detainedUntil > now || p.duel || p.driftStart>now) return;
   if (p.agent === '클로브' && i === 3 && active()) {
-    if (p.phaseUntil > now && p.mustKillBy) {
-      p.phaseUntil = now;
+    if(p.phaseUntil>now && p.mustKillBy){
+      if(now<p.reviveLock)return;
+      p.phaseUntil=p.reviveExit=now;p.nextShot=now+.8;p.mustKillBy=now+10;
       return;
     }
     if (!p.down || (!practice() && !p.charges[3])) return;
@@ -1753,12 +1764,12 @@ function ability(i, p = match.player, params = {}) {
       down: false,
       hp: 100,
       shield: 0,
-      phaseUntil: now + 2,
-      nextShot: now + 1.5,
-      mustKillBy: now + 12,
+      reviveWindow:0,phaseUntil:now+3.5,reviveLock:now+1.5,reviveExit:now+3.5,
+      nextShot:now+4.3,mustKillBy:now+13.5,
+      lastCast:{name:'아직 안 죽었어',at:now,end:now+3.5},
     });
-    p.charges[3] = 0;
-    p.ult = 0;
+    p.charges[3]=0;p.ult=0;
+    Object.assign(addDevice('pulse',p.x,p.z,p.team,1.5,1.6,1.6,2.3,'#ddb9ff',p,p.y),{kind:'cloveRevive',name:'아직 안 죽었어',cueAt:now+.7});
     abilityVoice(p, '아직 안 죽었어');
     return;
   }
@@ -1788,8 +1799,8 @@ function ability(i, p = match.player, params = {}) {
     return;
   }
   p.armedSlot = null;
-  const slotName = AGENTS[p.agent].gear[i],
-    deployed = owned(p, slotName);
+  const slotName=AGENTS[p.agent].gear[i],deployed=owned(p,slotName);
+  if(p.agent==='요루' && p.phaseUntil>now && (i===0 || i===1) || p.agent==='클로브' && p.phaseUntil>now && p.mustKillBy)return;
   if (!p.down && active() && !(p.suppressed > now)) {
     const inFlight = match.arrows.find((a) => a.owner === p.id && a.name === slotName);
     if (inFlight && ['귀체', '포박'].includes(slotName)) {
@@ -1810,7 +1821,7 @@ function ability(i, p = match.player, params = {}) {
     }
     if (['무시', '차원 표류'].includes(slotName) && p.phaseUntil > now) {
       p.phaseUntil = now;
-      if(slotName==='차원 표류')p.nextShot=Math.max(p.nextShot,now+(timing[slotName]['unequip/return time']??.8));
+      if(slotName==='차원 표류'){p.driftExit=0;p.nextShot=Math.max(p.nextShot,now+timing[slotName]['unequip/return time']);}
       return;
     }
     if (slotName === '광속' && p.lightRush?.extra && now < p.lightRush.start + 1.45) {
@@ -1962,11 +1973,11 @@ function ability(i, p = match.player, params = {}) {
     d.kind = 'divide';d.name=name;d.cueAt=now+2;
     d.start = now + 2;
   } else if (name === '대비책' || name === '심판') {
-    const harbor = name === '심판';
+    const harbor=name==='심판',offset=harbor?1:5;
     const d = addDevice(
       'plane',
-      p.x - Math.sin(p.yaw),
-      p.z - Math.cos(p.yaw),
+      p.x-Math.sin(p.yaw)*offset,
+      p.z-Math.cos(p.yaw)*offset,
       p.team,
       harbor ? 12 : 5.4,
       harbor ? 22 : 5,
@@ -2001,17 +2012,16 @@ function ability(i, p = match.player, params = {}) {
     p.evolveAt=now+stat['windup time'];
     Object.assign(addDevice('pulse',p.x,p.z,p.team,1.2,1.1,1.1,2.1,'#39cddd',p,p.y),{kind:'evolving',name,cueAt:p.evolveAt});
   } else if (name === '차원 표류') {
-    p.phaseUntil = now + (stat.duration ?? 10);
-    p.driftEntered=now;
+    p.driftStart=p.driftEntered=now+stat['cast delay'];p.driftExit=p.driftEntered+stat.duration;p.nextShot=Math.max(p.nextShot,p.driftEntered);
   } else if (name === '여제') {
     p.empress = true;
     p.stimUntil = now + 300;
   } else if (name === '활력 회복') {
     if (!(p.pickupUntil > now)) return;
     p.pickupUntil = 0;
-    p.overheal = 50;
-    p.overhealEnd = now + 10;
-    p.stimUntil = now + 10;
+    p.overheal=Math.max(0,150-p.hp-p.shield);
+    p.overhealEnd=now+10;p.hasteUntil=Math.max(p.hasteUntil??0,now+3);
+    Object.assign(addDevice('pulse',p.x,p.z,p.team,.7,1.15,1.15,1.7,'#f192ff',p,p.y),{kind:'pickUp',name,cueAt:now});
   } else if (name === '화음') {
     const ally = params.alt
       ? p
@@ -2042,7 +2052,7 @@ function ability(i, p = match.player, params = {}) {
       Object.assign(d,{hp:600,targetId:victim.id,route,goal:route[0],start,capture:arrival,pullSpeed:Math.max(3.7,distance/span),caught:false});
     }
   } else if (name === '청부 계약') {
-    const reach = 48;
+    const reach=36;
     const victim = enemies
       .map((o) => ({
         o,
@@ -2053,11 +2063,12 @@ function ability(i, p = match.player, params = {}) {
       .sort((a, b) => a.along - b.along)[0]?.o;
     if (!victim) {
       world.trace(line.origin, line.at(reach, new T.Vector3()), now, '#ad94ff', 0.38);
-    } else if (!p.duel && !victim.duel) {
+    } else if (!p.duel && !victim.duel && !victim.evolution && !(victim.phaseUntil>now)) {
+      if(!(p.focusUntil>now))focus(p,now,false);
       const level = 66 + p.i * 18;
       const duration = 1.5 + 13;
       const wall = (x, z, w, d, h, y, span) =>
-        addDevice('wall', x, z, p.team, span, w, d, h, '#7458a4', p, y);
+        Object.assign(addDevice('wall',x,z,p.team,span,w,d,h,'#7458a4',p,y),{kind:h<1?'contractFloor':'contractWall',name});
       const floor = wall(0, 0, 20, 31, 0.5, level - 0.5, duration + 2.1);
       for (const [x, z, w, d] of [
         [-10, 0, 0.4, 31],
@@ -2067,9 +2078,9 @@ function ability(i, p = match.player, params = {}) {
       ])
         wall(x, z, w, d, 5, level, duration + 2.1);
       for (const [x, z] of [
-        [-3, -4],
-        [3, -4],
-        [0, 4],
+        [-3, 4],
+        [3, 4],
+        [0, -4],
       ])
         wall(x, z, 4, 0.4, 2.3, level, 1.5);
       for (const [o, opponent, z, yaw] of [
@@ -2077,7 +2088,7 @@ function ability(i, p = match.player, params = {}) {
         [victim, p, -9, pi],
       ]) {
         o.duel = {
-          id: floor.id,
+          health:[o.hp,o.shield],id:floor.id,
           other: opponent.id,
           origin: { x: o.x, y: o.y, z: o.z, yaw: o.yaw, pitch: o.pitch },
           enter: now + 0.5,
@@ -2085,7 +2096,7 @@ function ability(i, p = match.player, params = {}) {
           end: now + duration,
           arena: { x: 0, y: level, z, yaw, pitch: 0 },
         };
-        o.nextShot = now + 1.5;
+        o.nextShot=now+1.5;
       }
     }
   } else if (name === '독사의 구덩이') {
@@ -2108,6 +2119,7 @@ function ability(i, p = match.player, params = {}) {
     p.lightDir = dir.toArray();
     p.nextShot = now + 0.45;
   } else if (name === '기만') {
+    const copied=heldWeapon(p),appearance=currentSkin(p);
     const d = addDevice(
       params.alt ? 'deployed' : 'decoy',
       p.x,
@@ -2122,7 +2134,7 @@ function ability(i, p = match.player, params = {}) {
       p.y,
     );
     Object.assign(d, {
-      kind: params.alt ? 'decoyMark' : 'decoy',
+      kind:params.alt?'decoyMark':'decoy',name,copyWeapon:copied.id,copySkin:appearance?{id:appearance.id,level:appearance.level,variant:appearance.variant}:null,
       hp: params.alt ? 0 : 150,
       travel: !params.alt,
       angle: p.yaw,
@@ -2133,14 +2145,15 @@ function ability(i, p = match.player, params = {}) {
     p.fuel ??= 100;
     if (!p.sprinting && p.fuel < 10) return;
     p.sprinting = !p.sprinting;
-    p.slideStock ??= 1;
+    p.slideStock??=1;
+    if(!p.sprinting && p.beamUntil>now)p.beamHolstered=true;else p.beamHolstered=false;
     cost = 0;
   } else if (name === '오버드라이브') {
-    p.beamUntil = now + 10;
+    p.nextShot=Math.max(p.nextShot,now+stat['initial windup time']);p.beamUntil=now+stat['initial windup time']+10;
     p.fuel = 100;
     p.sprinting = true;
-    p.beamAmmo = 40;
-    p.slideStock = 1;
+    p.beamAmmo=40;p.beamHolstered=false;p.beamRefill=0;
+    p.slideStock=1;p.slideKills=0;
   } else if (name === '어둠의 발자국') {
     const pt = line.at(Math.min(15, Math.max(0, distance - 0.45)), new T.Vector3()),
       ground = floorAt(pt.x, pt.z, pt.y + 0.6);
@@ -2220,7 +2233,7 @@ function ability(i, p = match.player, params = {}) {
     for (const path of paths) {
       const [x, y, z] = path[0];
       const d = addDevice('lane', x, z, p.team, 6, 0.12, 1, 3.5, '#31adff', p, y);
-      d.path = path;
+      d.path=path;d.name=name;if(path===paths[0])d.cueAt=now+.4;
     }
   } else if (remoteAbilities.includes(name)) {
     p.pilot = { kind: name, x: p.x, y: p.y + p.height, z: p.z, end: now + (name === '올빼미 드론' ? 7 : 6) };
@@ -2344,21 +2357,21 @@ function ability(i, p = match.player, params = {}) {
             m.x,
             m.z,
             p.team,
-            (stat.duration ?? (name === '계략' ? 13 : name==='웨이브폼'?16.75:15)) +
+            (name==='계략'?(p.down?6:14):stat.duration??(name==='웨이브폼'?16.75:15)) +
               (stat['windup time'] ?? stat['deploy time'] ?? 1),
-            name==='웨이브폼'?9.44:8.3,
-            name==='웨이브폼'?9.44:8.3,
-            name==='웨이브폼'?9.44:7.4,
+            name==='웨이브폼'?9.44:stat.radius*2,
+            name==='웨이브폼'?9.44:stat.radius*2,
+            name==='웨이브폼'?9.44:stat.radius*2,
             name === '계략' ? '#b78dc5' : name === '웨이브폼' ? '#9b8bcb' : '#a19081',
             p,
-            m.y-(name==='웨이브폼'?3.4:0),
+            m.y-(name==='웨이브폼'?3.4:stat.radius*.64),
           );
-          if(name==='웨이브폼')Object.assign(cloud,{kind:'waveform',name});
+          Object.assign(cloud,{name,kind:name==='계략'?'ruse':name==='공중 연막'?'skySmoke':'waveform',posthumous:p.down,cueAt:now+(stat['windup time']??stat['deploy time']??1)});
           cloud.start = now + (stat['windup time'] ?? stat['deploy time'] ?? 1);
         } else if (guided) createZone('guided', name, m, p, fieldContext());
         else {
-          const d = addDevice('orbital', m.x, m.z, p.team, 4.6, 9, 9, 12, '#ffaf52', p, m.y);
-          d.start = now + 1.45;
+          const d=addDevice('orbital',m.x,m.z,p.team,stat['windup time']+stat.duration,2*stat.radius,2*stat.radius,32,'#ffaf52',p,m.y);
+          Object.assign(d,{name,start:now+stat['windup time'],cueAt:now+stat['windup time']});
         }
     cost = smoke || guided ? targets.length : 1;
   } else if (hasThrow(name)) {
@@ -2555,7 +2568,7 @@ function ability(i, p = match.player, params = {}) {
       default:
         return;
     }
-  const recovery = stat['unequip time'] ?? 0;
+  const recovery=name==='구슬 보호막'?stat.windup:name==='오버드라이브'?stat['initial windup time']:stat['unequip time']??0;
   p.lastCast = { name, alt: !!params.alt, at: now, end: now + Math.max(0.28, recovery) };
   p.nextShot = Math.max(p.nextShot ?? 0, now + recovery);
   if (!practice() && !(name==='대미 장식' && p.rocketUntil>now))p.charges[i]=Math.max(0,p.charges[i]-cost);
@@ -2564,9 +2577,9 @@ function ability(i, p = match.player, params = {}) {
     i === 2 &&
     !practice() &&
     !p.signatureAt &&
-    ['세이지', '소바', '브리치', '오멘', '페이드', '케이/오', '스카이','하버','믹스'].includes(p.agent)
+    ['세이지','소바','브리치','오멘','페이드','케이/오','스카이','하버','믹스','클로브'].includes(p.agent)
   ) {
-    p.signatureInterval = stat.cooldown ?? (p.agent === '세이지' ? 45 : p.agent === '하버'?30:['오멘','믹스'].includes(p.agent) ? 40 : 50);
+    p.signatureInterval = stat.cooldown ?? (p.agent === '세이지' ? 45 : p.agent === '하버'?30:['오멘','믹스','클로브'].includes(p.agent) ? 40 : 50);
     p.signatureAt = now + p.signatureInterval;
   }
   if (i === 3) p.ult = 0;
@@ -2583,7 +2596,7 @@ function flashPlayer(player, source, duration) {
   const facing=aim(player.yaw,player.pitch).dot(dir);
   const strength=T.MathUtils.smoothstep(facing,-.65,.5);
   const until=now+.28+(duration-.28)*strength;
-  if(!(player.blindUntil>until))player.flashStyle=source.type==='flare'?'hush':source.type==='curve'?'phoenix':'';
+  if(!(player.blindUntil>until))player.flashStyle=source.type==='riftFlash' || source.name==='기습'?'yoru':source.type==='flare'?'hush':source.type==='curve'?'phoenix':'';
   player.blindUntil=Math.max(player.blindUntil??0,until);
 }
 function hasSight(point, o, limit) {
@@ -2603,8 +2616,8 @@ function tickProjectiles(dt) {
     const finished = flight(a, dt, now, world, match.devices, p);
     if (a.impactPoint) {
       const v = a.impactPoint,
-        d = addDevice('concuss', v.x, v.z, p.team, 1.4, 10, 10, 8, '#4bbaff', p, v.y - 4);
-      d.start = now + 1;
+        d=addDevice('concuss',v.x,v.z,p.team,1.4,10,10,.12,'#4bbaff',p,floorAt(v.x,v.z,v.y+.2));
+      Object.assign(d,{name:a.name,kind:'relayPulse',radius:5,start:now+1,cueAt:now+1});
       delete a.impactPoint;
     }
     if (a.type === 'paranoia' || a.type === 'undercut') {
@@ -2614,15 +2627,16 @@ function tickProjectiles(dt) {
           o !== p &&
           !o.down &&
           !targets.includes(o.id) &&
-          Math.hypot(a.x - o.x, a.z - o.z, a.y - o.y - o.height * 0.7) < 1.65
+          !o.evolution && Math.hypot(a.x-o.x,a.z-o.z,a.y-o.y-o.height*.7)<(a.type==='undercut'?3:1.65)
         ) {
           targets.push(o.id);
           if (a.type === 'paranoia') o.nearsight = now + 2;
-          else o.vulnerable = now + 4;
+          else{o.vulnerable=now+4;o.suppressed=now+4;playSkillCue(o,a.name,'impact');}
         }
       return !finished;
     }
     if (!finished) return true;
+    if(a.type==='blindside')return false;
     const floor = floorAt(a.x, a.z, a.y + 0.3),
       base = Number.isFinite(floor) ? floor : a.y;
     if (
@@ -2697,7 +2711,7 @@ function tickProjectiles(dt) {
     if (['relay', 'delivery', 'net', 'seize', 'haunt', 'mosh', 'meddle'].includes(a.type)) {
       const t = a.type,
         k = t === 'relay' || t === 'delivery' ? 'concuss' : t,
-        rad = { relay: 5, delivery: 4, net: 6.5, seize: 6.58, haunt: 30, mosh: 6.2, meddle: 5 }[t],
+        rad = { relay: 5, delivery: 4, net: 6.5, seize: 6.58, haunt: 30, mosh: 6.2, meddle:timing['간섭'].radius }[t],
         delay =
           t === 'relay'
             ? 1
@@ -2707,7 +2721,7 @@ function tickProjectiles(dt) {
                 ? 3
                 : t === 'haunt'
                   ? timing['귀체'].windup
-                  : t === 'seize' ? timing['포박'].windup : t==='net'?timing['중력그물'].windup:.15;
+                  : t === 'seize' ? timing['포박'].windup : t==='net'?timing['중력그물'].windup:t==='meddle'?timing['간섭'].windup:.15;
       const d = place(
         k,
         delay + (t === 'seize' ? 4.5 : t === 'haunt' ? 1.5 : 0.28),
@@ -2719,7 +2733,7 @@ function tickProjectiles(dt) {
       );
       Object.assign(d, { start: now + delay, radius: rad, done: false });
       if (skillAudio[a.name]?.impact) Object.assign(d, { name: a.name, cueAt: d.start });
-      d.name=a.name;
+      d.name=a.name;if(t==='relay')d.kind='relayPulse';if(t==='meddle')d.kind='meddle';
       if (t === 'haunt') d.hp=1;
     } else if (a.type === 'recon') {
       const d = place('recon', 3.4, 0.24, 0.24, '#64d9ff', a.y);
@@ -2737,14 +2751,14 @@ function tickProjectiles(dt) {
       const d = place(
         'fire',
         timing[a.name]?.duration ?? (a.name === '뜨거운 손' ? 4 : 7),
-        acid ? 9 : 8,
+        acid || a.name==='소이탄' ? 9 : 8,
         0.22,
         acid ? '#82e347' : '#f78b4d',
       );
-      d.acid = acid;
+      d.acid=acid;d.incendiary=a.name==='소이탄';
       d.phoenix = a.name === '뜨거운 손';
       Object.assign(d,{name:a.name,cueAt:now});
-    } else if (a.type === 'stim') place('stimField', 12, 8, 2.5, '#eeb452');
+    }else if(a.type==='stim')Object.assign(place('stimField',12,12,2.5,'#eeb452'),{kind:'beaconField',name:a.name,cueAt:now});
     else if (['flash', 'curve', 'hawk', 'flare'].includes(a.type)) {
       let confirmed=false;
       for (const o of match.players)
@@ -2758,6 +2772,7 @@ function tickProjectiles(dt) {
         }
       const light=place('pulse',0.26,1.5,1.4,'#fff5ce',a.y);
       if(['curve','flare'].includes(a.type))Object.assign(light,{kind:'flashBloom',name:a.name,cueAt:now});
+      if(a.name==='기습')Object.assign(light,{name:a.name,kind:'riftFlash',cueAt:now});
       if(a.type==='hawk' && confirmed)Object.assign(light,{name:a.name,cueAt:now,audience:p.team});
     } else {
       const r = a.type === 'rocket' ? 6 : a.type === 'bomblet' ? 3 : 5,
@@ -2854,7 +2869,7 @@ function drawProjectiles() {
         shock: 'shock-dart',
         paint: 'paintshell',swarm:'nanoswarm',vinePod:'razorvine',cageDisc:'cyber-cage',
         knife: 'zeropoint',
-        flash: 'flashdrive',
+        flash:a.name==='기습'?null:'flashdrive',
         satchel: 'blast-pack',mosh:'mosh-pit',net:'gravnet',barrier:'barrier-mesh',
       }[a.type];
       if (slug) {
@@ -2867,7 +2882,7 @@ function drawProjectiles() {
           if (arrow) orientation.rotation.y = Math.PI / 2;
           attachProp(orientation, slug, arrow ? 0.72 : 0.32);
         m.material.visible = false;
-      } else if ((['delivery','haunt','seize','mpulse','storm','flare','collapse','suspension','curve','poisonCan','vetoTrap'].includes(a.type) || a.name==='뜨거운 손' || a.name==='뱀 이빨')) {
+      } else if ((['relay','meddle','undercut','blindside','stim','delivery','haunt','seize','mpulse','storm','flare','collapse','suspension','curve','poisonCan','vetoTrap'].includes(a.type) || a.name==='기습' || a.name==='소이탄' || a.name==='뜨거운 손' || a.name==='뱀 이빨')) {
         m.scale.setScalar(1);m.material.visible=false;m.add(worldSculpture(a.name,a.type==='delivery'?.21:.32));
       } else if (a.type === 'cloud') {
         m.geometry = new T.SphereGeometry(0.6, 16, 12);
@@ -3015,6 +3030,7 @@ function applyAction(p, a) {
       reload(p);
       break;
     case 'equip':
+      if(p.agent==='네온' && p.kit[a.value]){p.sprinting=false;p.beamHolstered=p.beamUntil>now;}
       p.astro=false;p.queuedSkill = null;
       p.armedSlot = null;
       if (['primary', 'secondary', 'melee', 'special'].includes(a.value)) equip(a.value, p);
@@ -3059,7 +3075,9 @@ function applyAction(p, a) {
         const dir = Math.hypot(p.vx, p.vz);
         p.slideX = dir > 0.2 ? p.vx / dir : -Math.sin(p.yaw);
         p.slideZ = dir > 0.2 ? p.vz / dir : -Math.cos(p.yaw);
-        p.slideUntil = now + 0.6;
+        p.slideUntil=now+.6;p.sprinting=p.beamUntil>now && !p.beamHolstered;
+        p.nextShot=Math.max(p.nextShot,now+.2);
+        Object.assign(addDevice('pulse',p.x,p.z,p.team,.62,1.2,4,.06,'#66dfff',p,p.y),{kind:'slideTrail',angle:Math.atan2(p.slideX,p.slideZ),name:'고속 기어',cueAt:now});
         p.slideStock = Math.max(0, (p.slideStock ?? 1) - 1);
       }
       break;
@@ -3130,11 +3148,11 @@ function step(dt) {
       const duel = p.duel;
       if (!duel.entered && now >= duel.enter) {
         Object.assign(p, duel.arena, { vy: 0, vx: 0, vz: 0 });
-        duel.entered = true;
+        p.hp=100;p.shield=50;duel.entered=true;
       }
       if (duel.returnAt && now >= duel.returnAt) {
-        Object.assign(p, duel.origin, { vy: 0 });
-        p.duel = null;
+        Object.assign(p,duel.origin,{vy:0,hp:duel.health[0],shield:duel.health[1]});
+        p.duel=null;
       } else if (!duel.returnAt && now >= duel.end) {
         const rival = match.players.find((o) => o.id === duel.other);
         Object.assign(p, duel.origin, { vy: 0 });
@@ -3148,13 +3166,14 @@ function step(dt) {
       }
     }
     if (p.mustKillBy > 0 && now >= p.mustKillBy) {
-      p.mustKillBy = 0;
-      p.hp = 0;
-      p.down = true;
+      p.mustKillBy=0;environmentDeath(p);
     }
+    if(p.focusUntil && p.focusUntil<=now){p.focusUntil=0;p.isoShield=false;}
+    if(p.driftStart && now>=p.driftStart){p.driftStart=0;if(!p.down)p.phaseUntil=p.driftExit;}
+    if(p.driftExit && p.driftExit<=now){p.driftExit=0;p.nextShot=Math.max(p.nextShot,now+.8);}
     if (p.isoReady && now >= p.isoReady) {
       p.isoReady = 0;
-      p.isoShield = true;
+      if(!p.down)focus(p,now);
     }
     if (p.overhealEnd && now > p.overhealEnd && !p.empress) {
       p.overheal = 0;
@@ -3168,7 +3187,8 @@ function step(dt) {
       p.rocketUntil=0;
       if(p.agent==='레이즈' && p.armedSlot===3){p.armedSlot=null;p.queuedSkill=null;if(p.local)disarm();}
     }
-    if (!p.down && p.queuedSkill && now >= p.skillReady) {
+    const posthumousCast=p.agent==='클로브' && p.queuedSkill?.i===2;
+    if ((!p.down || posthumousCast) && p.queuedSkill && now>=p.skillReady) {
       const q = p.queuedSkill;
       p.queuedSkill = null;
       ability(q.i, p, q.params);
@@ -3180,10 +3200,11 @@ function step(dt) {
       Object.assign(p, p.revivePos);
     }
     if (p.down) {
-      p.queuedSkill = null;
+      if(!posthumousCast)p.queuedSkill=null;
       if (dm() && now >= p.respawnAt) respawn(p, (p.i + Math.floor(now)) % 5);
       continue;
     }
+    if(p.agent==='네온' && p.suppressed>now && p.sprinting){p.sprinting=false;p.beamHolstered=p.beamUntil>now;}
     const drone = p.pilot;
     if (drone?.lungeEnd && now >= drone.lungeEnd) {
       const thrash = drone.kind === '요동봇';
@@ -3226,8 +3247,10 @@ function step(dt) {
       p.destination = null;
     }
     if (p.agent === '네온') {
+      if(p.beamUntil && p.beamUntil<=now){p.sprinting=false;p.beamUntil=0;}
+      if(p.beamUntil>now && p.beamRefill && now>=p.beamRefill){p.beamAmmo=40;p.beamRefill=0;}
       p.fuel = Math.max(0, Math.min(100, (p.fuel ?? 100) + (p.sprinting ? -10 : 5) * dt));
-      if (p.fuel <= 0) p.sprinting = false;
+      if (p.fuel<=0 && !(p.beamUntil>now))p.sprinting=false;
     }
     if (p.agent === '바이퍼') {
       const emit = match.devices.filter((d) => d.owner === p.id && d.on && d.kind?.startsWith('poison'));
@@ -3333,7 +3356,7 @@ function step(dt) {
     } else if (
       active() &&
       match.core.actor !== p &&
-      ((p.local ? firePressed : false) || ((p.local ? fireHeld : input?.fire) && weaponFor(p).auto))
+      ((p.local ? firePressed : false) || ((p.local ? fireHeld : input?.fire) && (weaponFor(p).auto || p.beamUntil>now && !p.beamHolstered)))
     ) {
       if (!p.pilot) shoot(p);
     }
@@ -3350,12 +3373,13 @@ function step(dt) {
         endGame(best.name);
       }
     } else {
+      const contesting=o=>alive(o) || o.reviveWindow>now && o.charges[3]>0;
       const v = decideRound({
         armed: match.phase === 'objective',
         detonate: phaseTime(),
         clock: phaseTime(),
-        attackAlive: match.players.filter((o) => isAttack(o) && alive(o)).length,
-        defendAlive: match.players.filter((o) => !isAttack(o) && alive(o)).length,
+        attackAlive: match.players.filter((o) => isAttack(o) && contesting(o)).length,
+        defendAlive: match.players.filter((o) => !isAttack(o) && contesting(o)).length,
       });
       if (v) finish(v[0] === 'attack' ? match.attack : other(match.attack), v[1]);
       else channel(dt);
@@ -3523,7 +3547,7 @@ function step(dt) {
       const speed = d.travelSpeed ?? (d.type === 'decoy' ? 5.4 : 3);
       const x = d.x - Math.sin(d.angle) * dt * speed,
         z = d.z - Math.cos(d.angle) * dt * speed;
-      const floor=d.kind==='gatecrash'?floorAt(x,z,d.y+.32):d.y;
+      const floor=['gatecrash','decoy'].includes(d.kind)?floorAt(x,z,d.y+.32):d.y;
       if (!Number.isFinite(floor) || (d.kind!=='reckoning' && world.structure.blocked(x,z,floor+.1,.1,.22))) d.travel = false;
       else {
         d.x = x;
@@ -3557,14 +3581,14 @@ function step(dt) {
         if (
           o.down ||
           !owner ||
-          (!hostile(owner, o) && !['aftershock', 'wallFlash', 'concuss', 'net'].includes(d.type))
+          (!hostile(owner,o) && !['aftershock','wallFlash','concuss','net','meddle'].includes(d.type))
         )
           continue;
         const r = d.radius ?? (d.type === 'eye' || d.type === 'wallFlash' ? 24 : d.w / 2);
-        if (!hasSight(center, o, r)) continue;
+        if(o.evolution || d.kind==='decoy' && !inCloneFlash(d,o) || !hasSight(center,o,r))continue;
         if (d.type === 'eye' || d.type === 'wallFlash') {
           const direction = vec(d.x - o.x, d.y - o.y - o.height, d.z - o.z).normalize();
-          if (d.type === 'wallFlash'){flashPlayer(o,center,d.flashDuration ?? timing['섬광 폭발']['max blind duration']);if(d.kind==='rose')o.roseFlash=o.blindUntil;}
+          if (d.type === 'wallFlash'){flashPlayer(o,{...center,type:d.kind==='decoy'?'riftFlash':d.type},d.flashDuration ?? timing['섬광 폭발']['max blind duration']);if(d.kind==='rose')o.roseFlash=o.blindUntil;}
           else if (aim(o.yaw, o.pitch).dot(direction) > 0.25) o.nearsight = now + 0.25;
         } else if (d.type === 'haunt') {
           o.revealTeam = d.team;
@@ -3573,12 +3597,7 @@ function step(dt) {
           o.trailEnd=now+timing['귀체']['trail duration'];o.trailTeam=d.team;
         } else if (d.type === 'aftershock') hurt(o,hostile(owner,o)?80:26,owner);
         else if (d.type === 'meddle') {
-          if (!(o.decayUntil > now)) {
-            const loss = Math.min(90, Math.max(0, o.hp - 1));
-            o.hp -= loss;
-            o.decayLost = (o.decayLost ?? 0) + loss;
-          }
-          o.decayUntil = now + 3;
+          applyDecay(o,90,now+5);
         } else if (d.type === 'net') {o.netUntil=Number.MAX_SAFE_INTEGER;o.netRemoval=0;}
         else {
           o.tag=now+2.5;
@@ -3631,12 +3650,12 @@ function step(dt) {
       return true;
     }
     if (['orbital', 'stimField'].includes(d.type) && now >= (d.start ?? 0) && now >= (d.next ?? 0)) {
-      d.next = now + 0.2;
+      d.next=now+(d.type==='orbital'?.08:.20);
       const owner = match.players.find((o) => o.id === d.owner);
       for (const o of match.players)
         if (owner && !o.down && range(o, d) < d.w / 2 && Math.abs(o.y - d.y) < d.h) {
-          if (d.type === 'orbital') hurt(o, 20, owner);
-          else if (o.team === d.team) o.stimUntil = now + 1.5;
+          if(d.type==='orbital')hurt(o,8*(o!==owner && !hostile(owner,o)?1/3:1),owner);
+          else if(o.team===d.team){o.beaconStim=now+4;o.stimUntil=Math.max(o.stimUntil??0,now+4);o.hasteUntil=Math.max(o.hasteUntil??0,now+4);}
         }
     }
     if(d.kind==='cyberCage')for(const o of match.players){
@@ -3667,7 +3686,7 @@ function step(dt) {
     for (const o of match.players) {
       if (
         !owner ||
-        (!hostile(owner,o) && !d.acid && !(d.phoenix && o!==owner)) ||
+        (!hostile(owner,o) && !d.acid && !d.incendiary && !(d.phoenix && o!==owner)) ||
         o.down || o.evolution ||
         o.y > d.y + d.h + 0.38 ||
         o.y + o.height < d.y ||
@@ -3679,7 +3698,7 @@ function step(dt) {
       else if(d.type==='trap')o.tag=now+.7;
       if (burn && Math.hypot(o.x - d.x, o.z - d.z) <= d.w / 2) {
         if (d.acid) o.vulnerable = now + 2;
-        hurt(o,(d.phoenix?15:d.acid?3:10)*(o===owner || hostile(owner,o)?1:1/3),owner);
+        hurt(o,(d.phoenix?15:d.acid?3:d.incendiary?15:10)*(o===owner || hostile(owner,o)?1:1/3),owner);
       }
     }
     return true;
@@ -3720,7 +3739,12 @@ function drawWorld(realTime) {
     core.visible = false;
   } else {
     for (const d of match.devices) {
-      if(dimensionalEffect(d,now,match.player))continue;
+      if(dimensionalEffect(d,now,match.player)){
+        if(d.cueAt!==undefined && d.mesh.userData.lastSound!==d.cueAt && now>=d.cueAt){
+          d.mesh.userData.lastSound=d.cueAt;if(now-d.cueAt<.55)playSkillCue(d,d.name,'impact');
+        }
+        continue;
+      }
       if(d.type==='nanowire')drawWire(d,now);
       const specialVisual=presentAbility(d,now);
       if(!specialVisual)drawDevice(d, now);
@@ -3796,9 +3820,12 @@ function drawWorld(realTime) {
           const advance=Math.min(d.reach,Math.max(0,(now-d.start)*d.speed));
           mesh.scale.set(Math.max(.1,2*advance*Math.tan(Math.PI/6)),.42,1.0);
         }
-        if (d.type === 'decoy' && !mesh.userData.requested) {
-          mesh.userData.requested = true;
-          attachProp(mesh, 'yoru', 1.35);
+        if(d.type==='decoy'){
+          mesh.scale.setScalar(1);mesh.position.y=d.y;mesh.material.visible=false;
+          if(!mesh.userData.actor){mesh.userData.sculpture?.removeFromParent();mesh.userData.actor=character(mesh,'요루');mesh.userData.disposeField=mesh.userData.actor.dispose;}
+          if(d.copySkin && !mesh.userData.copyAppearance)mesh.userData.copyAppearance=skinProfile(skinCatalog[d.copyWeapon]?.find(s=>s.id===d.copySkin.id),d.copySkin);
+          const appearance=mesh.userData.copyAppearance;
+          mesh.userData.actor(now,d.travel?1:0,false,modelKey(d.copyWeapon??'classic',appearance),appearance);
         }
         if (fieldProp(d.kind) && !mesh.userData.requested) {
           mesh.userData.requested = true;
@@ -3837,9 +3864,10 @@ function drawWorld(realTime) {
     const pit = match.devices.find(
       (d) => d.type === 'pit' && now>=d.start && range(watch,d)<12 && Math.abs(watch.y-d.y)<8,
     );
-    world.scene.fog.near = pit ? 1 : shadow ? 2 : 62;
-    world.scene.fog.far=pit?8.1:shadow?7:scoutView?timing['정찰자']['vision radius']:190;
-    world.scene.fog.color.set(pit?'#54843d':shadow?'#281b47':scoutView?'#447533':'#9ac6d3');
+    const inBrimSmoke=match.devices.some(d=>d.kind==='skySmoke' && now>=d.start+.18 && Math.hypot(watch.x-d.x,watch.z-d.z,watch.y+watch.height-d.y-d.h/2)<d.w/2);
+    world.scene.fog.near = inBrimSmoke?.35:pit ? 1 : shadow ? 2 : 62;
+    world.scene.fog.far=inBrimSmoke?2.4:pit?8.1:shadow?7:scoutView?timing['정찰자']['vision radius']:190;
+    world.scene.fog.color.set(inBrimSmoke?'#918477':pit?'#54843d':shadow?'#281b47':scoutView?'#447533':'#9ac6d3');
     canvas.style.filter = astral
       ? 'sepia(.65) hue-rotate(200deg) saturate(1.8) brightness(.76)'
       : scoutView ? 'sepia(.52) hue-rotate(49deg) saturate(1.5)' : pilotView
@@ -3847,6 +3875,9 @@ function drawWorld(realTime) {
         : shadow
           ? 'brightness(.64)'
           : '';
+    hud.classList.toggle('focus-shield',!!watch.isoShield);
+    hud.classList.toggle('clove-revival',watch.agent==='클로브' && watch.phaseUntil>now);
+    hud.classList.toggle('rift-nearby',match.players.some(o=>o.agent==='요루' && hostile(watch,o) && o.phaseUntil>now && range(watch,o)<15));
     hud.classList.toggle('evolved',!!watch.evolution);
     hud.classList.toggle('suspended',watch.suspendedUntil>now);
     hud.classList.toggle('chokehold',watch.deafUntil>now && !!watch.tether);
@@ -3892,7 +3923,7 @@ function drawWorld(realTime) {
       watch.championAura = watch.kills > 0 && match.players.every((o) => o.kills <= watch.kills);
     else watch.championAura = false;
     const liveSkill =
-      (watch === self ? armedName() : '') || (watch.regrowing?'재생':'') || (watch.agent==='요루' && watch.phaseUntil>now?'차원 표류':'') ||
+      (watch === self ? armedName() : '') || (watch.agent==='네온' && watch.sprinting?(watch.beamUntil>now && !watch.beamHolstered?'오버드라이브':'고속 기어'):'') || (watch.regrowing?'재생':'') || (watch.agent==='요루' && watch.phaseUntil>now?'차원 표류':'') ||
       (watch.lastCast?.end > now &&
       !['칼날 폭풍', '역작', '헤드헌터', '순풍', '고속 기어', '오버드라이브'].includes(watch.lastCast.name)
         ? watch.lastCast.name
@@ -3955,7 +3986,7 @@ function drawWorld(realTime) {
       const pitHighlight=pit?.owner===watch.id && hostile(watch,o) && range(watch,o)<8.1 && hasSight({...watch,y:watch.y+watch.height},o,8.4);
       const revealed=pitHighlight || (o.revealTeam===self.team && o.revealEnd>now);
       g.visible=(o!==watch || !!watch.pilot || inForm) && (!inForm || !hostile(watch,o) || revealed) && alive(o) && !o.ghost && world.playersInView.visible(o,loc,now,revealed)
-        && !(o.agent==='요루' && o.phaseUntil>now && hostile(watch,o) && range(watch,o)>15);
+        && !(o.agent==='요루' && o.phaseUntil>now && hostile(watch,o));
       if(!g.visible)continue;
       g.position.set(loc.x,loc.y,loc.z);
       g.rotation.y=loc.yaw;
@@ -3968,7 +3999,7 @@ function drawWorld(realTime) {
         currentSkin(o),
         o.strike,
         o.pitch,
-        o.armedSlot!=null ? AGENTS[o.agent].gear[o.armedSlot] : o.lastCast?.end>now && now-o.lastCast.at<.14 ? o.lastCast.name : null,
+        o.armedSlot!=null ? AGENTS[o.agent].gear[o.armedSlot] : o.agent==='네온' && o.sprinting?(o.beamUntil>now?'오버드라이브':'고속 기어'):o.lastCast?.end>now && now-o.lastCast.at<.14 ? o.lastCast.name : null,
       );
 
       g.scale.y = o.mode === 'crouch' ? 0.74 : 1;
@@ -4123,7 +4154,9 @@ function drawHud() {
   tablet.hidden=!tabletNames.includes(armedName()) || armedName()==='우주 장벽';
   tablet.classList.toggle('waveform-map',armedName()==='웨이브폼');
   const tejoMap=isTejoMap(armedName());tablet.classList.toggle('tejo-projection',tejoMap);
-  if((tejoMap || armedName()==='웨이브폼') && !tablet.hidden)drawTejoMap(tablet,mapBase,HALF,p,armedName(),marks,cursor);
+  tablet.classList.toggle('tactical-dial',centeredTablet(armedName()));
+  tablet.classList.toggle('ruse-dial',armedName()==='계략');
+  if(centeredTablet(armedName()) && !tablet.hidden)drawTejoMap(tablet,mapBase,HALF,p,armedName(),marks,cursor);
   else if (!tablet.hidden) {
     const ctx = tablet.getContext('2d'),
       size = tablet.width;
@@ -4201,6 +4234,7 @@ function drawHud() {
   const meter = Math.hypot(p.vx, p.vz);
   const posture =
     p.mode === 'crouch' ? '앉기 · 무음' : p.mode === 'walk' ? '걷기 · 무음' : meter < 0.2 ? '정지' : '달리기';
+  document.body.classList.toggle('rift-flashed',p.flashStyle==='yoru' && p.blindUntil>now);
   document.body.classList.toggle('hush-flashed',p.flashStyle==='hush' && p.blindUntil>now);
   document.body.classList.toggle('phoenix-flashed',p.flashStyle==='phoenix' && p.blindUntil>now);
   document.body.classList.toggle('rose-flashed',p.roseFlash>now);
@@ -4222,15 +4256,15 @@ function drawHud() {
             ? '제압'
             : posture) +
     '</small>');
-  const gun = heldWeapon(watch);
+  const gun=heldWeapon(watch),overdrive=watch.agent==='네온' && watch.sprinting && watch.beamUntil>now && !watch.beamHolstered;
   updateHudPanel('ammo', '<strong>' +
-    (gun.id === 'melee'
+    (overdrive?watch.beamAmmo+'<em> / 40</em>':gun.id === 'melee'
       ? '근접'
       : gun.id === 'blades'
         ? '◆ ' + gun.mag
         : gun.mag + '<em> / ' + gun.reserve + '</em>') +
     '</strong><small>' +
-    WEAPONS[gun.id].name +
+    (overdrive?'오버드라이브':WEAPONS[gun.id].name) +
     (watch.reloading ? ' · 재장전 중' : ' · ' + p.credits.toLocaleString('ko-KR') + ' ₡') +
     '</small>');
   updateHudPanel(
@@ -4257,7 +4291,7 @@ function drawHud() {
     fire:settings.dynamic?p.bloom*140:0});
   const core = match.core;
   const prompt = p.down
-    ? '관전 · 좌클릭으로 전환'
+    ? (p.agent==='클로브' && active()?('E 계략'+(p.charges[3]?' · X 부활':'')+' · 좌클릭 관전 전환'):'관전 · 좌클릭으로 전환')
     : p.netUntil>now ? '[F 유지] 중력그물 제거 · '+Math.min(100,Math.floor((p.netRemoval??0)/1.5*100))+'%'
     : p.cameraDart ? '[F 유지] 추적용 다트 제거 · '+Math.min(100,Math.floor(p.dartRemoval/1.5*100))+'%'
     : match.phase === 'buy'
@@ -4750,7 +4784,7 @@ stateKeys.push(
   'mustKillBy',
   'vulnerable',
   'netUntil',
-  'flashStyle','flow','holdY','evolution','evolveAt','astro','recall','recallEnd','starTimers','starReturns','trappedBy','downedKayo','cameraDart','dartRemoval','overloadedUntil','regrowing','healingPool','rocketUntil',
+  'flashStyle','focusUntil','reviveWindow','beaconStim','pickupUntil','driftStart','slideStock','slideX','slideZ','beamHolstered','reviveLock','reviveExit','duel','flow','holdY','evolution','evolveAt','astro','recall','recallEnd','starTimers','starReturns','trappedBy','downedKayo','cameraDart','dartRemoval','overloadedUntil','regrowing','healingPool','rocketUntil',
   'trailEnd','trailOrigin','trailTeam','netRemoval','harmonyUntil','roseFlash','owlDart','owlHitUntil','vineUntil',
 );
 function snapshot() {
@@ -5260,6 +5294,7 @@ window.addEventListener('keydown', (event) => {
       return;
     }
     if (
+      (name==='아직 안 죽었어' && p.phaseUntil>now && p.mustKillBy) ||
       (name === '심판' &&
         match.devices.some((d) => d.kind === 'reckoning' && d.owner === p.id && d.travel && d.end > now)) ||
       (name === '광속' && p.lightRush?.extra && now < p.lightRush.start + 1.45) ||
@@ -5488,7 +5523,7 @@ window.addEventListener('mousemove', (event) => {
   if(armedName()==='우주 장벽'){world.astralView?.pointer(event,canvas,unlocked);return;}
   if (tabletNames.includes(armedName())) {
     const rect = get('tablet-map').getBoundingClientRect();
-    const centred=isTejoMap(armedName()) || armedName()==='웨이브폼',extent=centred?tabletRange(armedName()):HALF;
+    const centred=centeredTablet(armedName()),extent=centred?tabletRange(armedName()):HALF;
     if (unlocked) {
       cursor.x=(centred?match.player.x:0)+((event.clientX-rect.left)/rect.width-.5)*2*extent;
       cursor.z=(centred?match.player.z:0)+((event.clientY-rect.top)/rect.height-.5)*2*extent;

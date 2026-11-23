@@ -205,7 +205,7 @@ export function character(parent, name) {
         right = body.getObjectByName('R_Thigh');
       })
       .catch(() => {});
-  const castAgents=new Set(['게코','페이드','브리치','데드록','테호']);
+  const castAgents=new Set(['게코','페이드','브리치','데드록','테호','브림스톤','아이소','클로브','네온','요루']);
   const animate = (time, stride, revealed = false, weaponKey, skin, attack, pitch=0,skill) => {
     const utility=castAgents.has(name)?skill:null;
     const stamp = utility?'skill/'+utility:(weaponKey ?? '') + '/' + (skin?.profileKey ?? '');
@@ -216,7 +216,8 @@ export function character(parent, name) {
         disposeHeld = null;
         held?.removeFromParent();
         held = null;
-        if(utility){
+        if(utility && ['고속 기어','오버드라이브','추월 차선'].includes(utility))held=null;
+        else if(utility){
           held=new T.Group();grip.add(held);
           const scale=grip.getWorldScale(new T.Vector3());
           held.scale.set(1/scale.x,1/scale.y,1/scale.z);
@@ -692,7 +693,7 @@ export function firstPerson() {
       state.weapon.userData.foldBlade?.(tag,ratio);
       state.core?.update(tag,ratio,now);
       if(!customCore)state.grip?.update(tag,ratio,skin,p.ads);
-      state.gesture?.update(tag,ratio);
+      state.gesture?.update(tag,ratio,now);
       state.bow?.update(charge,tag,ratio);
       state.weapon.userData.collectionUpdate?.(tag,ratio,now,state.supportHand);
       if(state.weapon.userData.spareMagazine)state.weapon.userData.spareMagazine.visible=!customCore && !floatingLoad && tag==='reload' && ratio>.12 && ratio<.82;

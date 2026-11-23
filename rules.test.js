@@ -24,6 +24,7 @@ import { castField, tickField } from './agent-fields.js';
 import { createZone, tickZone, shieldHit } from './ability-zones.js';
 import {strikePath,insideStrip,sensorArea,tabletRange} from './strike-path.js';
 import {wirePath} from './nanowire.js';
+import {damageCredit,eliminationRewards,focus,applyDecay,inCloneFlash,neonDamage} from './agent-combat.js';
 import {worldSculpture,sculptedHand} from './ability-sculptures.js';
 import {Box3} from 'three';
 import { Group, Ray, Vector3 } from 'three';
@@ -479,8 +480,26 @@ test('the divide mutes only across its active plane and collision applies Displa
   kineticPull({x:3,z:1},one,{players:[one],time:4,move(p,dx){p.x=Math.min(1.4,p.x+dx);}});
   assert.equal(one.tag,5.4);
 });
-test('the five agent kits expose twenty distinct rigid props and sixty playable phase cues',()=>{
-  for(const [name,agent] of Object.entries(AGENTS).slice(15,20)){
+test('assist credit awards Clove a revival and spawns only the focused Iso orb',()=>{
+  const clove={id:1,team:'blue',agent:'클로브',mustKillBy:11},iso={id:2,team:'blue',agent:'아이소'},victim={team:'red',x:2,y:1,z:4};
+  focus(iso,4);damageCredit(victim,clove,4);const orbs=[];
+  eliminationRewards(victim,iso,[iso,clove,victim],8,p=>orbs.push(p.id));
+  assert.deepEqual(orbs,[2]);assert.equal(clove.mustKillBy,0);assert.equal(clove.pickupUntil,13);
+  assert.equal(iso.focusUntil,16);assert.deepEqual(victim.damageLedger,{});
+});
+test('Meddle cannot kill or double-count overlapping pulses, and Fakeout flashes only its forward cone',()=>{
+  const p={hp:85};applyDecay(p,90,7);applyDecay(p,90,8);
+  assert.equal(p.hp,1);assert.equal(p.decayLost,84);assert.equal(p.decayUntil,8);
+  const d={x:0,z:0,angle:Math.PI/2};assert(inCloneFlash(d,{x:4,z:1}));assert(!inCloneFlash(d,{x:-2,z:0}));
+});
+test('Overdrive damage follows hit location and range and two kills restore a spent slide',()=>{
+  assert.equal(neonDamage(12,'head'),54);assert.equal(neonDamage(20,'body'),12);assert.equal(neonDamage(55,'body'),10);
+  const p={id:2,agent:'네온',team:'blue',slideStock:0,slideKills:0},o={team:'red'};
+  eliminationRewards(o,p,[p,o],1,()=>{});assert.equal(p.slideStock,0);
+  eliminationRewards(o,p,[p,o],2,()=>{});assert.equal(p.slideStock,1);
+});
+test('the ten agent kits expose forty rigid props and their equip, cast and impact cues',()=>{
+  for(const [name,agent] of Object.entries(AGENTS).slice(15,25)){
     for(const skill of agent.gear){
       const rig=sculptedHand(skill);assert(rig?.children.length,name+' '+skill);
       for(const phase of ['equip','cast','impact']){

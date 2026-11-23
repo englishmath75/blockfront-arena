@@ -314,7 +314,7 @@ export function visionDistance(ray, d, now, limit) {
     const s = Math.sqrt(det),
       t1 = (-b - s) / a,
       t2 = (-b + s) / a;
-    if (!['darkCover','pit'].includes(d.type) && !['cove','waveform'].includes(d.kind) && t1 < 0 && t2 >= 0) return 0;
+    if (!['darkCover','pit'].includes(d.type) && !['cove','waveform','ruse'].includes(d.kind) && t1 < 0 && t2 >= 0) return 0;
     const hit = t1 >= 0 ? t1 : t2;
     return hit >= 0 ? Math.min(limit, hit) : limit;
   }

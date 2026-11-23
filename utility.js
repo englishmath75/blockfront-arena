@@ -29,8 +29,8 @@ const throws = {
   '폭파봇 지옥': ['mosh', 17, 13, 4],
   피해망상: ['paranoia', 20, 0, 1.7],
   기습: ['blindside', 21, 12, 4],
-  간섭: ['meddle', 22, 11, 1.3],
-  약화: ['undercut', 23, 0, 1.2],
+  간섭:['meddle',22,11,8],
+  약화:['undercut',22.5,0,1.55],
   '충격 화살': ['shock', 38, 7, 8],
   '정찰용 화살': ['recon', 38, 7, 8],
   페인트탄: ['paint', 17, 15, 2.1],
@@ -162,10 +162,14 @@ export function flight(a, dt, now, world, devices, owner) {
   a.x += norm.x * 0.035;
   a.y += norm.y * 0.035;
   a.z += norm.z * 0.035;
-  if (['fire','slow','mosh','haunt','seize','cageDisc','fragment','poisonCan','vetoTrap','vinePod','swarm','storm','mpulse'].includes(a.type) && norm.y < .55) {
+  if (['fire','meddle','slow','mosh','haunt','seize','cageDisc','fragment','poisonCan','vetoTrap','vinePod','swarm','storm','mpulse'].includes(a.type) && norm.y < .55) {
     vel.reflect(norm).multiplyScalar(.65);
     Object.assign(a,{vx:vel.x,vy:vel.y,vz:vel.z});
     return false;
+  }
+  if(a.name==='소이탄' && norm.y>=.55 && (a.floorBounces??0)<2 && Math.abs(vel.y)>2.6){
+    a.floorBounces=(a.floorBounces??0)+1;vel.reflect(norm).multiplyScalar(.43);
+    Object.assign(a,{vx:vel.x,vy:vel.y,vz:vel.z});return false;
   }
   if(a.type==='satchel'){stickPack(a,norm,now);return false}
   if (a.type==='recon') a.surfaceNormal=norm.toArray();
@@ -225,6 +229,8 @@ export function accessHint(name, charge, bounces, marks) {
   if(name==='아크 장미')return '좌클릭 벽에 설치 · 우클릭 벽 너머 설치 · E 섬광 · F 회수';
   if (name === 'M-파동') return '우클릭 치유·뇌진탕 전환 · 좌클릭 투척';
   if (name === '지원봇') return '좌클릭 추격 · 설치 지점 또는 스파이크 조준 후 우클릭';
+  if(name==='관문 충돌')return '좌클릭 이동하는 관문 · 우클릭 제자리에 설치 · E 순간이동 · 관문 조준 후 F 속임수';
+  if(name==='대비책')return '좌클릭 빠른 방벽 · 우클릭 느린 방벽';
   if (name === '기만') return '좌클릭 분신 전개 · 우클릭 표식 설치 · F 활성화';
   if (arrowNames.includes(name))
     return '좌클릭 유지 후 놓기 · 충전 ' + Math.round(charge * 100) + '% · 우클릭 반사 ' + bounces + '/2';

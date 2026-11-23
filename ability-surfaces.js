@@ -15,7 +15,40 @@ float line(float p,float w){return 1.-smoothstep(w,w+max(.008,fwidth(p)),abs(p))
 float filament(float p,float w){return line(fract(p+.5)-.5,w);}
 void main(){
   vec2 v=uv0;vec2 p=v*2.-1.;float r=length(p),a=0.;vec3 c;
-  if(style>=40.){
+  if(style>=50.){
+    float az=atan(p.y,p.x),rim=line(r-.95,.016);
+    float swirl=sin(v.x*19.+sin(v.y*9.-t*.7)*2.+t*.33);
+    if(style==50. || style==51. || style==52.){
+      float roll=sin(v.y*20.+1.8*swirl+t*.34),band=smoothstep(-.48,.74,roll);
+      if(style==50.)c=mix(vec3(.25,.205,.17),vec3(.67,.62,.50),.36+.33*swirl+.19*band);
+      else if(style==51.)c=mix(mix(vec3(.33,.26,.64),vec3(.54,.69,.88),.5+.5*swirl),vec3(.93,.70,.94),band);
+      else c=mix(vec3(.10,.064,.19),vec3(.49,.32,.63),band*(.68+.3*swirl));
+      c+=.045*filament(v.y*5.+swirl*.61+t*.18,.023);a=1.;
+    }else if(style==53. || style==54. || style==55.){
+      vec2 q=v*(style==54.?vec2(14.,20.):vec2(9.,6.));q.x+=mod(floor(q.y),2.)*.5;
+      vec2 cell=abs(fract(q)-.5);float hex=max(cell.x,cell.x*.5+cell.y*.866);
+      float grid=line(hex-.40,.021);float sweep=filament(v.y*1.5+v.x*.4-t*.37,.038);
+      c=mix(style==54.?vec3(.052,.041,.12):vec3(.12,.078,.28),vec3(.62,.46,1.),grid*.80+sweep*.20);
+      a=style==53.?.61+.36*grid:.99;
+    }else if(style==56.){
+      float filament1=filament(v.x*52.+sin(v.y*9.-t*5.)*.48,.09);
+      float flare=filament(v.y*2.+t*2.4,.07);
+      c=mix(vec3(1.,.28,.025),vec3(1.,.91,.54),filament1+.25*flare);
+      a=front<0.?(.16+.36*filament1):.18+.62*filament1+.18*flare;
+    }else if(style==57.){
+      float circuit=filament(r*3.-t*.57,.032),ticks=filament(az*3.82,.037);
+      c=mix(vec3(.84,.34,.035),vec3(1.,.83,.40),max(rim,ticks));
+      a=step(r,1.)*(.07+.57*rim+.41*circuit+.32*ticks*step(.77,r));
+    }else if(style==58. || style==59. || style==60.){
+      float threads=filament(v.y*3.+swirl*.49-t*.54,.043);
+      c=style==58.?mix(vec3(.31,.12,.53),vec3(.96,.64,.92),threads):
+        style==59.?mix(vec3(.08,.44,.95),vec3(1.,.95,.18),threads):mix(vec3(.15,.16,.88),vec3(.58,.92,1.),threads);
+      a=.12+.67*threads+.19*sin(front*3.14);
+    }else{
+      float fork=filament(p.x*2.+sin(v.y*15.+t*3.)*.32,.046);
+      c=mix(vec3(.04,.49,.99),vec3(.71,.99,1.),fork);a=(1.-abs(p.y))*(.08+.69*fork);
+    }
+  }else if(style>=40.){
     float phi=atan(p.y,p.x);
     if(style==40. || style==41.){
       float turf=sin(p.x*9.+sin(p.y*13.+t*2.)*1.7+t)*cos(p.y*11.-t*2.);
@@ -165,6 +198,18 @@ void main(){
 }`;
 const waveStyles={'균열':1,'지진 강타':2,'황혼':3};
 function surfaceStyle(d){
+  if(d.kind==='skySmoke')return 50;
+  if(d.kind==='ruse')return d.posthumous?52:51;
+  if(d.kind==='contingency')return 53;
+  if(d.kind==='contractFloor')return 54;
+  if(d.kind==='contractWall')return 55;
+  if(d.type==='orbital')return 56;
+  if(d.kind==='beaconField')return 57;
+  if(['meddle','pickUp','cloveRevive'].includes(d.kind))return 58;
+  if(d.kind==='relayPulse')return 59;
+  if(d.kind==='riftFlash' || d.kind==='decoy' && d.type==='wallFlash')return 60;
+  if(d.kind==='slideTrail')return 61;
+  if(d.incendiary)return 41;
   if(d.acid)return 40;
   if(d.phoenix && d.type==='fire')return 41;
   if(d.kind==='toxinPit' || d.kind==='toxinCloud')return 42;
@@ -296,6 +341,13 @@ function presentNew(d,mesh,style,now){
 const liftLoop=new T.TorusGeometry(1,.027,6,40,Math.PI*1.72).rotateX(Math.PI/2);
 const liftTint=new T.MeshBasicMaterial({color:0xf19fff}),bindTint=new T.MeshBasicMaterial({color:0x4ee4d3});
 export function playerFieldVisual(group,p,now){
+  let shield=group.userData.focusShell;
+  if(p.isoShield && !shield){
+    shield=new T.Mesh(orb,makeMaterial(53));shield.scale.set(1.04,2.04,1.04);shield.position.y=.94;
+    shield.material.uniforms.alpha.value=.38;group.add(shield);group.userData.focusShell=shield;
+    group.addEventListener('removed',()=>shield.material.dispose());
+  }
+  if(shield){shield.visible=!!p.isoShield;if(shield.visible)shield.material.uniforms.t.value=now;}
   const lifting=p.suspendedUntil>now,held=p.deafUntil>now && p.tether?.until>now;
   let band=group.userData.statusBands;
   if(!lifting && !held){if(band)band.visible=false;return;}
@@ -325,6 +377,8 @@ export function presentAbility(d,now){
     mesh.scale.setScalar(1);mesh.position.set(0,0,0);return true;
   }
   let sculpt,span,height;
+  if(kind==='focusOrb'){sculpt='구슬 보호막';span=.52;height=.23;}
+  if(kind==='decoyMark'){sculpt='기만';span=.36;height=.12;}
   if(kind==='star'){sculpt='성운';span=.47;height=.16;}
   if(['passage','vetoTrap','interceptor','poisonOrb'].includes(kind)){
     sculpt=d.name;span=kind==='interceptor'?.76:kind==='passage'?.65:kind==='vetoTrap'?.36:.28;height=span*.42;
@@ -341,7 +395,7 @@ export function presentAbility(d,now){
     }
     const at=now-d.born,part=mesh.userData.sculpture;mesh.visible=true;
     mesh.position.set(d.x,d.y+height,d.z);mesh.rotation.y=d.angle??0;
-    if(kind==='star' || kind==='passage'){part.rotation.y=at*(kind==='star'?1.12:.66);part.position.y=.037*Math.sin(at*3.4);}
+    if(kind==='star' || kind==='passage' || kind==='focusOrb'){part.rotation.y=at*(kind==='star'?1.12:.66);part.position.y=.037*Math.sin(at*3.4);}
     if(kind==='interceptor' && d.on){part.rotation.y=at*2.5;
       if(!mesh.userData.beam){const beam=new T.Mesh(wall,new T.MeshBasicMaterial({color:0x91ffff}));mesh.add(beam);mesh.userData.beam=beam;mesh.userData.disposeField=()=>beam.material.dispose();}
       const beam=mesh.userData.beam;beam.visible=!!d.beam && now-d.cueAt<.20;
@@ -361,6 +415,11 @@ export function presentAbility(d,now){
     if(kind==='rose')for(const child of mesh.children)child.visible=false;
     if(style>=21)mesh.geometry=style===25 && d.type==='groundWave'?bassArc:style===21 || kind==='harmony'?cylinder:[23,24,29,30,31].includes(style)?floor:[25,28,32].includes(style)?wall:orb;
     if(style>=40)mesh.geometry=[42,43].includes(style)?orb:style===44?wall:floor;
+    if(style>=50){
+      mesh.geometry=[50,51,52,58,59,60].includes(style)?orb:[53,54,55].includes(style)?wall:style===56?cylinder:floor;
+      if(style===60 && mesh.userData.actor)for(const c of mesh.children)c.visible=false;
+      if(style===57){const beacon=worldSculpture('자극제 신호기',.42);beacon.scale.x/=d.w;beacon.scale.z/=d.d;beacon.position.y=.07;mesh.add(beacon);}
+    }
     if(style<=3){
       const face=new T.Mesh(curtain,makeMaterial(style===3?13:14));mesh.add(face);mesh.userData.face=face;
       mesh.userData.disposeField=()=>face.material.dispose();
@@ -369,6 +428,24 @@ export function presentAbility(d,now){
   const uniforms=mesh.material.uniforms,age=now-d.born,dt=now-(d.start??d.born);
   uniforms.t.value=now;uniforms.age.value=age;uniforms.alpha.value=saturate((d.end-now)*8,0,1);
   mesh.visible=true;
+  if(style>=50){
+    const u=saturate(dt/(d.end-(d.start??d.born)),0,1);
+    uniforms.front.value=dt<0?-1:u;
+    mesh.scale.set(d.w,d.h,d.d);mesh.rotation.y=d.angle??0;mesh.position.set(d.x,d.y+d.h/2,d.z);
+    if(style<=53){
+      const k=saturate((dt+(style===53?.4:0))/(style===53?.4:.24),.001,1);
+      mesh.visible=style===53 || dt>=0;
+      mesh.scale.set(d.w*(style===53?1:k),d.h*k,d.d*(style===53?1:k));mesh.position.y=d.y+d.h*k/2;
+    }else if(style===56){
+      const h=dt<0?.11:Math.max(.1,d.h*saturate(dt/.1,0,1));mesh.scale.y=h;mesh.position.y=d.y+h/2;
+    }else if(style===57 || style===61){mesh.scale.y=1;mesh.position.y=d.y+.046;}
+    else if(style===58 || style===59 || style===60){
+      const charged=['meddle','relayPulse'].includes(kind),k=charged?(dt<0?.95:.33+.67*saturate(dt/.23,0,1)):.31+.69*Math.sin(Math.PI*u);
+      mesh.scale.set(d.w*k,(charged?d.w*.42:d.h)*k,d.d*k);mesh.position.y=d.y+(charged?.08:d.h*.51);
+      uniforms.alpha.value*=dt<0?.46:1;
+    }
+    return true;
+  }
   if(style>=40){
     const span=d.radius?2*d.radius:d.w;
     uniforms.front.value=dt<0?0:dt%1;

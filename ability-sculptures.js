@@ -155,19 +155,63 @@ const focusSets=[
   ['격류','섬광등','진형 붕괴','일체 정지'],
   ['불길','뜨거운 손','커브볼','역습'],
   ['지름길','목조르기','요격기','진화'],
-  ['중력의 샘','신성 파동','성운','우주 장벽']
+  ['중력의 샘','신성 파동','성운','우주 장벽'],
+  ['자극제 신호기','소이탄','공중 연막','궤도 일격'],
+  ['대비책','약화','구슬 보호막','청부 계약'],
+  ['활력 회복','간섭','계략','아직 안 죽었어'],
+  ['추월 차선','릴레이 볼트','고속 기어','오버드라이브'],
+  ['기만','기습','관문 충돌','차원 표류']
 ];
 const focus=Object.fromEntries(focusSets.flatMap((set,g)=>set.map((name,i)=>[name,{g,i}])));
-const focusLeft=new Set(['뱀 이빨','독성 장막','독사의 구덩이','격류','섬광등','불길','뜨거운 손','지름길','진화',...focusSets[4]]);
+const focusLeft=new Set(['뱀 이빨','독성 장막','독사의 구덩이','격류','섬광등','불길','뜨거운 손','지름길','진화',...focusSets[4],'공중 연막','궤도 일격','약화','청부 계약','계략','기만']);
 const shell=metal(0x253a38,.79),petrol=metal(0x12282c,.76),jet=metal(0x141222,.73);
 const hot=light(0xff571b),sun=light(0xffdb89),orchid=light(0xf284ff),astrum=light(0xffcb6b);
 const arcBand=new T.TorusGeometry(1,.055,8,26,Math.PI*1.38);
-const crystal=new T.OctahedronGeometry(1),teal=light(0x34d9cf);
+const crystal=new T.OctahedronGeometry(1),teal=light(0x34d9cf),riftBlue=light(0x405bf8);
+const ionHalo=new T.MeshBasicMaterial({color:0x34e9ff,transparent:true,opacity:.32,depthWrite:false,blending:T.AdditiveBlending});
 crystal.setIndex(Array.from({length:crystal.attributes.position.count},(_,i)=>i));
 function focusProp(kind,part,strand){
   const {g,i}=focus[kind];
   const loop=(mat,r,y,tilt)=>part(ring,mat,0,y,0,r,r,r,tilt,.2*i);
-  if(g===0){
+  if(g===5){
+    if(i<2){
+      part(i===0?crystal:sphere,steel,0,0,0,.052,.029,.073);
+      for(let j=0;j<3;j++){const a=j*2.094;part(box,amber,.032*Math.cos(a),.024,.032*Math.sin(a),.008,.007,.046,0,-a,0);}
+    }else{
+      part(box,black,0,-.01,0,.105,.028,.14);part(box,steel,0,.004,0,.094,.012,.129);
+      part(box,jet,0,.013,0,.087,.006,.118);
+      for(const r of [.022,.039,.064])loop(amber,r,.038,Math.PI/2);
+      const radar=Array.from({length:8},(_,n)=>[.046*Math.sin(n*1.73),.035,.040*Math.cos(n*2.83)]);strand(astrum,radar,.0014);
+      for(let j=0;j<12;j++){const a=j*Math.PI/6;part(box,amber,.063*Math.sin(a),.039,.063*Math.cos(a),.002,.002,.009,0,a,0);}
+    }
+  }else if(g===6){
+    const r=[.042,.054,.035,.052][i],height=i===1?.015:r;
+    part(crystal,purple,0,0,0,r,height,r);
+    for(let k=0;k<3;k++){
+      const radius=r*(1+k*.20),points=Array.from({length:7},(_,j)=>{const a=j*Math.PI/3+k*.16;return [radius*Math.cos(a),.011*(k-1)+Math.sin(a)*height*.45,radius*Math.sin(a)];});
+      strand(k===1?lightIris:violet,points,.0025);
+    }
+    part(crystal,lightIris,0,.006,0,r*.53,height*.87,r*.53);
+  }else if(g===7){
+    const r=i===1?.048:.026;
+    part(sphere,i===1?purple:lightIris,0,0,0,r,r,r);
+    for(let j=0;j<4;j++){const a=j*1.57;part(arcBand,j%2?orchid:blue,0,.005,0,r*1.18,r*1.15,r,.48+j*.51,a,j*.7);}
+    if(i!==1)for(const side of [-1,1]){
+      part(sphere,orchid,side*.032,.031,.002,.032,.008,.019,0,.39*side,side*.77);
+      part(sphere,lightIris,side*.023,.007,.020,.022,.005,.012,0,-.55*side,side*.49);
+    }
+  }else if(g===8){
+    for(let j=0;j<4;j++){const s=j*.015-.022;strand(j===1?sun:blue,[[s,-.010,0],[s+.009,.009,-.009],[s-.007,.018,-.019],[s+.003,.035,-.029]],.0026);}
+  }else if(g===9){
+    const r=i===1?.037:.048;
+    part(i===1?crystal:sphere,jet,0,0,0,r,r*(i===1?1.23:.88),r*.86);
+    for(let j=0;j<5;j++){
+      const path=Array.from({length:9},(_,n)=>{const u=n/8,theta=j*1.256+u*2.6,rad=r*(.45+.62*Math.sin(Math.PI*u));
+        return [Math.cos(theta)*rad,(u-.5)*r*1.95,Math.sin(theta)*rad];});
+      strand(j%3===0?blue:riftBlue,path,j%3===0?.0024:.006);
+    }
+    if(i===1)for(const s of [-1,1])part(crystal,blue,s*.026,.018,0,.019,.061,.012,0,0,-s*.39);
+  }else if(g===0){
     const can=i===1,r=can?.048:.034;
     part(sphere,shell,0,0,0,r,.042,r*1.48);
     for(let j=0;j<3;j++)part(ring,j===1?lime:steel,0,0,(j-1)*.029,r,r,r);
@@ -241,7 +285,7 @@ export function authoredHandling(rig,prop,eye,skill){
   if(!eye || (!prop.userData.authoredSkill && !['잠입 드론','아크 장미','면도날 덩굴'].includes(skill)))return;
   const shade=['귀체','추적귀','포박','황혼','추적자','재생'].includes(skill);
   const brace=['여진','균열','섬광 폭발','지진 강타'].includes(skill),drone=skill==='잠입 드론';
-  const tablet=['유도 일제 사격','아마겟돈','웨이브폼','만조','해만','심판','화음','요동치는 베이스'].includes(skill);
+  const tablet=['유도 일제 사격','아마겟돈','웨이브폼','만조','해만','심판','화음','요동치는 베이스','공중 연막','궤도 일격'].includes(skill);
   const pose=focus[skill];
   const wrist=focusLeft.has(skill) || brace && skill==='섬광 폭발' || tablet || skill==='파편/탄' || skill==='재생'?'L':'R';
   const hand=rig.getObjectByName(wrist+'_Hand'),elbow=rig.getObjectByName(wrist+'_Elbow');
@@ -262,7 +306,20 @@ export function authoredHandling(rig,prop,eye,skill){
   if(brace)prop.scale.setScalar(.82);
   const restore=()=>{if(framed)joints.forEach((j,i)=>j.quaternion.copy(saved[i]));framed=false;};
   let framed=false;
-  return {restore,update(tag,ratio){
+  // Match the knuckle direction in camera space after solving the two elbows.
+  const knuckles=pose?.g>=5?['L','R'].map(s=>[s,rig.getObjectByName(s+'_Hand'),rig.getObjectByName(s+'_Middle1')]).filter(([,w,k])=>w && k):[];
+  const wristAt=new T.Vector3(),knuckleAt=new T.Vector3(),pointing=new T.Vector3(),wristTurn=new T.Quaternion(),wristQ=new T.Quaternion();
+  const tips=pose?.g===8?['R','L'].flatMap(s=>['Index','Middle','Ring','Pinky'].flatMap((digit,j)=>{
+    if(pose.i!==0 && s==='L' || pose.i===3 && j>0)return [];
+    const bone=rig.getObjectByName(s+'_'+digit+'3');if(!bone)return [];
+    const glow=new T.Mesh(sphere,j===1?sun:blue);
+    bone.getWorldScale(knuckleAt);glow.scale.set(.008/knuckleAt.x,.009/knuckleAt.y,.014/knuckleAt.z);
+    const end=rig.getObjectByName(s+'_'+digit+'4');if(end)glow.position.copy(end.position).multiplyScalar(.53);
+    const halo=new T.Mesh(sphere,ionHalo);halo.scale.setScalar(1.65);glow.add(halo);bone.add(glow);return [glow];
+  })):[];
+  const pointBones=pose?.g===8 && pose.i===3?[1,2].map(n=>[rig.getObjectByName('R_Index'+n),rig.getObjectByName('R_Index'+(n+1))]).filter(([a,b])=>a && b):[];
+  for(const [joint] of pointBones)if(!joints.includes(joint)){joints.push(joint);saved.push(new T.Quaternion());}
+  return {restore,update(tag,ratio,time=0){
     joints.forEach((j,i)=>saved[i].copy(j.quaternion));framed=true;
     const casting=['throw','short throw','fire','cast','place'].includes(tag);
     const release=casting?Math.sin(Math.min(1,ratio)*Math.PI):0;
@@ -283,17 +340,49 @@ export function authoredHandling(rig,prop,eye,skill){
       target.z+=side*(paired?-.04:.021);
       other.z+=side*(paired?.061:g===0?.065:0);other.y+=paired?.068:.009;
       other.x+=paired?release*.11:.025;
+      if(g===5 && i>=2){target.set(at.x+.43,at.y-.13-lower,at.z-.058);other.set(target.x+.045,target.y+.055+.023*Math.cos(time*4),target.z+.068);}
+      if(g===6){target.y+=.044;other.y+=.065;if(i===2){target.z=at.z+.10;other.z=at.z-.10;}if(i===1)target.x+=release*.12;}
+      if(g===7){target.y+=.065;other.y+=.038;target.z+=side*.019*Math.sin(time*2.4);other.x+=release*.065;}
+      if(g===8){
+        const run=i===2?Math.sin(time*12):0;
+        target.set(at.x+.47+run*.12+release*.11,at.y-.13-lower+run*.035,at.z+(i===3?.115:.206));
+        other.set(at.x+.45-run*.12+release*(i===0?.12:0),at.y-.15-lower-run*.047,at.z-.205);
+        for(const tip of tips)tip.visible=true;
+      }
+      if(g===9){target.y+=.039;other.z+=side*.034;target.x+=release*.081;}
     }
     if(wrist==='R'){right(target,rightPole);left(other,leftPole);}else{left(target,leftPole);right(other,rightPole);}
+    for(const [s,w,k] of knuckles){
+      const sign=s==='L'?-1:1,lead=s===wrist,group=pose.g,slot=pose.i;
+      w.getWorldPosition(wristAt);k.getWorldPosition(knuckleAt).sub(wristAt).normalize();
+      pointing.set(.66,lead?.30:.16,-sign*(lead?.54:.36));
+      if(group===5)pointing.set(s==='L'?.72:-.08,s==='L'?.24:-.65,s==='L'?.15:-.78);
+      if(group===6)pointing.set(.62,slot===2?.47:.24,-sign*(slot===2?.59:.40));
+      if(group===7)pointing.set(.45+.54*release,lead?.56:.29,-sign*.50);
+      if(group===8)pointing.set(slot===3 && lead?1:.76,slot===3 && lead?.02:slot===0?.55:.13,-sign*(slot===3 && lead?.16:.42));
+      if(group===9)pointing.set(.56+.35*release,lead?.48:.13,-sign*(lead?.46:.61));
+      wristTurn.setFromUnitVectors(knuckleAt,pointing.normalize());w.getWorldQuaternion(wristQ);w.parent.getWorldQuaternion(parentQ);
+      w.quaternion.copy(parentQ.invert().multiply(wristTurn).multiply(wristQ));
+    }
     for(const f of fingers){
       let curl=shade?-.16:drone?.09:-.04;
       if(pose){
         const grip=(f.name.startsWith(wrist+'_') || skill==='역습');
         const pinching=['섬광등','커브볼','신성 파동','지름길'].includes(skill);
         curl=grip?(skill==='역습'?.37:pinching && /Thumb|Index/.test(f.name)?.21:/Index|Middle/.test(f.name)?-.15:.12):.065;
+        if(pose.g===5 && pose.i>=2 && f.name.startsWith('R_'))curl=/Index/.test(f.name)?-.34:.39;
+        if(pose.g===6 && pose.i===2)curl=.49-release*.28;
+        if(pose.g===7)curl=/Thumb|Index/.test(f.name)?.05:.24;
+        if(pose.g===8)curl=pose.i===3 && f.name.startsWith('R_')?(/Index/.test(f.name)?-.39:.56):pose.i===2?.34:-.11;
         curl-=release*.16;
       }
       f.rotateX(curl);
+    }
+    for(const [segment,tip] of pointBones){
+      segment.getWorldPosition(wristAt);tip.getWorldPosition(knuckleAt).sub(wristAt).normalize();
+      pointing.set(1,.03,-.16).normalize();wristTurn.setFromUnitVectors(knuckleAt,pointing);
+      segment.getWorldQuaternion(wristQ);segment.parent.getWorldQuaternion(parentQ);
+      segment.quaternion.copy(parentQ.invert().multiply(wristTurn).multiply(wristQ));
     }
     hand.getWorldPosition(target);
     if(brace || tablet){
@@ -306,7 +395,7 @@ export function authoredHandling(rig,prop,eye,skill){
     prop.position.copy(rig.worldToLocal(target));
     rot.set(brace?-.25:-.08,shade?Math.PI/2+.15:brace?-Math.PI/2:drone?Math.PI/2:Math.PI/2+.23,brace?-.18:.07);
     forwardQ.setFromEuler(rot);rig.getWorldQuaternion(parentQ);prop.quaternion.copy(parentQ.invert().multiply(forwardQ));
-    prop.visible=!(casting && !brace && !tablet && ratio>.46);
+    prop.visible=!(pose?.g===8 && pose.i!==1) && !(casting && !brace && !tablet && ratio>.46);
   }};
 }
 export function worldSculpture(name,span){

@@ -434,7 +434,7 @@ export function createWorld(canvas, data) {
       }
       if (d.type === 'plane' && clock >= (d.start ?? 0) && (vision || d.bulletWall))
         distance = shieldHit(line, d, distance);
-      if (d.type === 'wall' || (!vision && result && d.hp > 0)) {
+      if (d.type === 'wall' || (!vision && result && d.hp>0 && (d.kind!=='focusOrb' || result.shooter===d.owner) && (d.kind!=='decoy' || d.team!==result.team))) {
         const t = hitBox(line, d.x, d.y ?? 0, d.z, d.w, d.h, d.d);
         if (t < distance) {
           distance = t;
