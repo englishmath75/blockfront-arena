@@ -501,6 +501,8 @@ input:not([type='range']):not([type='checkbox']) {
 #hud.owl-camera::before {content:"";position:absolute;inset:14% 15%;border-radius:50%;pointer-events:none;border:2px solid #e7fafe9a;mask-image:conic-gradient(transparent 0 18deg,#000 19deg 72deg,transparent 73deg 105deg,#000 106deg 151deg,transparent 152deg 208deg,#000 209deg 252deg,transparent 253deg 288deg,#000 289deg 340deg,transparent 341deg);}
 .owl-telemetry {color:#a5fff1;background:#08242ba6;padding:.3em 1.1em;letter-spacing:.12em;}
 #tablet-map.waveform-map {border-radius:50%;border:3px solid #f8ce89;box-shadow:0 0 0 6px #9e77d451,0 0 20px #e4a5ff6b;}
+body.blind.hush-flashed::after{background:radial-gradient(ellipse at center,#fff6fb 0%,#ffd8fa 3%,transparent 17%),repeating-conic-gradient(from 11deg,#f9b7ff44 0deg,transparent 5deg 43deg),radial-gradient(ellipse,#e88dee 1%,#a33899 46%,#461d50 100%)}
+body.blind.phoenix-flashed::after{background:radial-gradient(ellipse,#fff8d4 1%,#ffdb9a 13%,#ffac64 48%,#cd6344 100%)}
 body.blind.rose-flashed::after {background:radial-gradient(circle,#fff5bc 0%,#edbbef 9%,#a584dd 40%,#5a73bb 90%);}
 #hud.thrash-camera::before {background:radial-gradient(ellipse,transparent 35%,#ec3ca446 85%);box-shadow:inset 0 0 20px #f34daa80;}
 #tablet-map.tejo-projection {

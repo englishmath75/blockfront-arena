@@ -6,7 +6,7 @@ import { parseCrosshair,reticle } from './crosshair.js';
 import { scopeLevels,zoomFov,drawScope } from './optics.js';
 import { anchorPair, wireVisual } from './trapwire.js';
 import { castField, tickField, fieldProp } from './agent-fields.js';
-import {presentAbility} from './ability-surfaces.js';
+import {presentAbility,playerFieldVisual} from './ability-surfaces.js';
 import {drawTrails} from './terror-trails.js';
 import {wirePath,drawWire} from './nanowire.js';
 import {drawTejoMap,isTejoMap} from './tejo-map.js';
@@ -440,7 +440,7 @@ function respawn(p, slot = p.i) {
     jammedUntil: 0,
     detainedUntil: 0,
     plasmaUntil: 0,
-    deafUntil: 0,
+    deafUntil: 0,flashStyle:'',
     trailEnd: 0,
     isoReady: 0,
     isoShield: false,
@@ -2582,7 +2582,9 @@ function flashPlayer(player, source, duration) {
   const dir=vec(source.x-player.x,source.y-player.y-player.height,source.z-player.z).normalize();
   const facing=aim(player.yaw,player.pitch).dot(dir);
   const strength=T.MathUtils.smoothstep(facing,-.65,.5);
-  player.blindUntil=Math.max(player.blindUntil??0,now+.28+(duration-.28)*strength);
+  const until=now+.28+(duration-.28)*strength;
+  if(!(player.blindUntil>until))player.flashStyle=source.type==='flare'?'hush':source.type==='curve'?'phoenix':'';
+  player.blindUntil=Math.max(player.blindUntil??0,until);
 }
 function hasSight(point, o, limit) {
   const from = vec(point.x, point.y + 0.12, point.z),
@@ -2800,7 +2802,8 @@ function tickProjectiles(dt) {
 }
 const worldUp=new T.Vector3(0,1,0),worldForward=new T.Vector3(0,0,1),surfaceDirection=new T.Vector3();
 function updatePlacementGhost(skill,p){
-  const kind={'포탑':'turret','알람봇':'alarmbot','가지치기':'shear'}[skill];
+  const kind={'포탑':'turret','알람봇':'alarmbot','가지치기':'shear','지름길':'passage','요격기':'interceptor'}[skill];
+  const veto=kind==='passage' || kind==='interceptor';
   if(!kind && !world.placementGhosts)return;
   const cache=world.placementGhosts??=new Map();
   for(const [key,ghost] of cache)ghost.visible=key===kind;
@@ -2809,7 +2812,13 @@ function updatePlacementGhost(skill,p){
   if(!ghost){
     ghost=new T.Group();world.scene.add(ghost);cache.set(kind,ghost);
     const mat=world.projectionMaterial??=new T.MeshBasicMaterial({color:0xaf7aff,transparent:true,opacity:.53,depthWrite:false});
-    if(kind==='shear'){
+    if(veto){
+      const span=kind==='interceptor'?.76:.65;
+      const shell=worldSculpture(skill,span),tint=world.vetoProjection??=new T.MeshBasicMaterial({color:0x5af2da,transparent:true,opacity:.53,depthWrite:false});
+      shell.traverse(part=>{if(part.isMesh)part.material=tint;});shell.position.y=span*.42;ghost.add(shell);
+      const footprint=new T.Mesh(new T.RingGeometry(.46,.48,48),tint);
+      footprint.rotation.x=-Math.PI/2;ghost.add(footprint);
+    }else if(kind==='shear'){
       const strip=new T.Mesh(new T.BoxGeometry(7.2,.026,.09),mat);ghost.add(strip);
     }else{
       attachProp(ghost,kind,kind==='turret'?.92:.36)?.then(()=>ghost.traverse(part=>{if(part.isMesh)part.material=mat;}));
@@ -2817,9 +2826,9 @@ function updatePlacementGhost(skill,p){
       ring.rotation.x=-Math.PI/2;ring.position.y=kind==='turret'?-.446:-.166;ghost.add(ring);
     }
   }
-  const ray=new T.Ray(vec(p.x,p.y+p.height,p.z),aim(p.yaw,p.pitch)),reach=timing[skill]['max deploy distance']??18;
+  const ray=new T.Ray(vec(p.x,p.y+p.height,p.z),aim(p.yaw,p.pitch)),reach=timing[skill]['max deploy distance']??timing[skill]['deployment distance']??18;
   const point=ray.at(Math.max(.1,world.mapHit(ray,reach,match.devices)-.55),surfaceDirection);
-  const y=floorAt(point.x,point.z,point.y+1.5);ghost.visible=Number.isFinite(y);
+  const y=floorAt(point.x,point.z,point.y+(veto?.4:1.5));ghost.visible=Number.isFinite(y);
   if(ghost.visible){ghost.position.set(point.x,y+(kind==='turret'?.46:kind==='alarmbot'?.18:.025),point.z);ghost.rotation.y=kind==='turret'?wallAngle:p.yaw;}
 }
 function drawProjectiles() {
@@ -3935,7 +3944,7 @@ function drawWorld(realTime) {
     if(world.astralView)world.astralView.group.visible=inForm;
     hud.classList.toggle('astral-form',inForm);
     if(inForm){
-      world.astralView.update(camera,self,localKeys,cursor,world,HALF,realTime,divideMode);
+      world.astralView.update(camera,self,localKeys,cursor,world,HALF,realTime,divideMode,marks[0]);
       world.scene.fog.near=44;world.scene.fog.far=125;world.scene.fog.color.set('#3c255c');
       canvas.style.filter='sepia(.96) saturate(2.8) hue-rotate(232deg) contrast(1.16) brightness(.82)';
     }
@@ -3950,6 +3959,7 @@ function drawWorld(realTime) {
       if(!g.visible)continue;
       g.position.set(loc.x,loc.y,loc.z);
       g.rotation.y=loc.yaw;
+      playerFieldVisual(g,o,now);
       o.model.animate?.(
         now,
         Math.min(1, Math.hypot(o.vx, o.vz) / 6),
@@ -4022,6 +4032,19 @@ function minimap(watch) {
   radar.clearRect(0, 0, 180, 180);
   radar.drawImage(mapBase, 0, 0);
   const local = match.player;
+  radar.save();
+  const projected=watch===local && armedName()==='독성 장막';
+  const wall=match.devices.find(d=>d.kind==='poisonLine' && d.owner===watch.id && d.end>now);
+  if(projected || wall){
+    const path=projected?toxicPath(watch,floorAt):wall.path;
+    if(path?.length){radar.beginPath();for(let i=0;i<path.length;i++){const [x,,z]=path[i];radar[i?'lineTo':'moveTo'](mapPx(x),mapPx(z));}
+      radar.lineWidth=1.7;radar.strokeStyle=projected?'#ccff83':wall.on?'#9bed42':'#76a15d';radar.setLineDash(projected?[2,2]:[]);radar.stroke();}
+  }
+  for(const d of match.devices)if(d.team===watch.team && d.end>now && ['star','passage','interceptor','poisonOrb'].includes(d.kind)){
+    radar.fillStyle=d.kind==='star'?'#ffc47f':d.kind==='poisonOrb'?'#91d84c':'#68e1d7';
+    radar.fillRect(mapPx(d.x)-1.5,mapPx(d.z)-1.5,3,3);
+  }
+  radar.restore();
   const radius = audibleStep(watch.mode, Math.hypot(watch.vx, watch.vz), grounded(watch)) ? 18 : 0;
   if (radius) {
     radar.beginPath();
@@ -4178,6 +4201,8 @@ function drawHud() {
   const meter = Math.hypot(p.vx, p.vz);
   const posture =
     p.mode === 'crouch' ? '앉기 · 무음' : p.mode === 'walk' ? '걷기 · 무음' : meter < 0.2 ? '정지' : '달리기';
+  document.body.classList.toggle('hush-flashed',p.flashStyle==='hush' && p.blindUntil>now);
+  document.body.classList.toggle('phoenix-flashed',p.flashStyle==='phoenix' && p.blindUntil>now);
   document.body.classList.toggle('rose-flashed',p.roseFlash>now);
   document.body.classList.toggle('blind', p.blindUntil > now);
   if (p.blindUntil > now) document.body.style.setProperty('--flash-opacity', Math.min(1,(p.blindUntil-now)/.38));
@@ -4725,7 +4750,7 @@ stateKeys.push(
   'mustKillBy',
   'vulnerable',
   'netUntil',
-  'flow','holdY','evolution','evolveAt','astro','recall','recallEnd','starTimers','starReturns','trappedBy','downedKayo','cameraDart','dartRemoval','overloadedUntil','regrowing','healingPool','rocketUntil',
+  'flashStyle','flow','holdY','evolution','evolveAt','astro','recall','recallEnd','starTimers','starReturns','trappedBy','downedKayo','cameraDart','dartRemoval','overloadedUntil','regrowing','healingPool','rocketUntil',
   'trailEnd','trailOrigin','trailTeam','netRemoval','harmonyUntil','roseFlash','owlDart','owlHitUntil','vineUntil',
 );
 function snapshot() {

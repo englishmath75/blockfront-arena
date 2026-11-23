@@ -7,7 +7,8 @@ export class AstralView{
     const gold=new T.MeshBasicMaterial({color:0xffd789,depthTest:false});
     this.ring=new T.Mesh(new T.TorusGeometry(.72,.032,8,48).rotateX(Math.PI/2),gold);
     this.star=new T.Mesh(new T.OctahedronGeometry(.22),gold);
-    this.group.add(this.ring,this.star);
+    this.ruler=new T.Mesh(new T.BoxGeometry(1,.05,.15),new T.MeshBasicMaterial({color:0xffd98b,depthTest:false}));
+    this.ruler.renderOrder=10;this.group.add(this.ring,this.star,this.ruler);
     this.group.renderOrder=this.star.renderOrder=this.ring.renderOrder=9;
     this.group.visible=false;scene.add(this.group);
     this.cx=this.cz=0;this.height=31;this.last=0;
@@ -19,7 +20,7 @@ export class AstralView{
     else{ndc.x+=event.movementX*2/rect.width;ndc.y-=event.movementY*2/rect.height;}
     ndc.clampScalar(-.99,.99);
   }
-  update(camera,p,keys,cursor,world,limit,time,divide){
+  update(camera,p,keys,cursor,world,limit,time,divide,first){
     const dt=this.last?Math.min(.05,(time-this.last)/1000):0;this.last=time;
     const clamp=v=>T.MathUtils.clamp(v,-limit,limit);
     this.cx=clamp(this.cx+dt*20*(+keys.has('KeyD')-+keys.has('KeyA')));
@@ -30,6 +31,11 @@ export class AstralView{
     ray.setFromCamera(ndc,camera);
     const t=world.mapHit(ray.ray,130,[],false);ray.ray.at(t,point);
     cursor.x=clamp(point.x);cursor.z=clamp(point.z);
+    this.ruler.visible=!!(divide && first);
+    if(this.ruler.visible){const dx=cursor.x-first.x,dz=cursor.z-first.z;
+      this.ruler.rotation.y=-Math.atan2(dz,dx);this.ruler.scale.x=limit*4;this.ruler.position.y=.14;
+      this.ruler.visible=dx*dx+dz*dz>1;
+    }
     this.group.visible=true;this.group.position.copy(point);this.group.position.y+=.095;
     this.star.rotation.y=time*.002;this.star.position.y=.39+Math.sin(time*.004)*.07;
     this.ring.scale.setScalar(divide?1.45:1);this.ring.material.color.setHex(divide?0xd5a7ff:0xffd789);

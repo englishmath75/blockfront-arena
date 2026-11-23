@@ -293,6 +293,25 @@ function presentNew(d,mesh,style,now){
     }
   }
 }
+const liftLoop=new T.TorusGeometry(1,.027,6,40,Math.PI*1.72).rotateX(Math.PI/2);
+const liftTint=new T.MeshBasicMaterial({color:0xf19fff}),bindTint=new T.MeshBasicMaterial({color:0x4ee4d3});
+export function playerFieldVisual(group,p,now){
+  const lifting=p.suspendedUntil>now,held=p.deafUntil>now && p.tether?.until>now;
+  let band=group.userData.statusBands;
+  if(!lifting && !held){if(band)band.visible=false;return;}
+  if(!band){
+    band=new T.Group();for(let i=0;i<3;i++)band.add(new T.Mesh(liftLoop,liftTint));
+    group.add(band);group.userData.statusBands=band;
+  }
+  band.visible=true;
+  for(let i=0;i<3;i++){
+    const arc=band.children[i],phase=i*2.094+now*(lifting?2.9:-2.4);
+    arc.material=lifting?liftTint:bindTint;
+    arc.position.y=lifting?.18+i*.43+.12*Math.sin(phase):.12+i*.16;
+    arc.rotation.set(lifting?.22:.32,phase,.14*Math.cos(phase));
+    arc.scale.setScalar((lifting?.48:.35)+.045*Math.cos(phase));
+  }
+}
 export function presentAbility(d,now){
   const mesh=d.mesh,kind=d.kind;
   if(kind==='lockdown')lockdownCountdown(d,now);
