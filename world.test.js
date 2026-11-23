@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { handlingTracks, sampleHandling } from './handling-motion.js';
+import {usesStandardAction} from './skin-articulation.js';
 import { sceneryVisibility } from './scenery-visibility.js';
 import { deviceMesh, drawDevice } from './field-effects.js';
 import { skinProfile } from './skin-levels.js';
@@ -54,6 +55,15 @@ test('growing skill walls preserve the GPU buffers and handle a newly placed sin
   d.path.push([3,.2,1]);drawDevice(d,.2);
   assert.equal(mesh.geometry,geometry);assert.equal(geometry.drawRange.count,12);
   assert(Number.isFinite(geometry.boundingSphere.radius));mesh.material.dispose();geometry.dispose();
+});
+
+test('model-only gun chromas retain native gestures and their documented sound exceptions',()=>{
+  const byName=(gun,name)=>skinProfile(skinList[gun].find(s=>s.name===name));
+  const altitude=byName('vandal','알티튜드 밴달'),snow=byName('phantom','스노우폴 팬텀');
+  assert(altitude && snow);assert(usesStandardAction('vandal',altitude,'inspect'));
+  assert(usesStandardAction('phantom',snow,'reload'));assert(!usesStandardAction('phantom',snow,'inspect'));
+  assert(!usesStandardAction('vandal',byName('vandal','쿠로나미 밴달'),'reload'));
+  assert(!usesStandardAction('melee',skinProfile(skinList.melee[0]),'inspect'));
 });
 
 test('Cyber Cage obscures its round wall at eye height and leaves its interior visible',()=>{

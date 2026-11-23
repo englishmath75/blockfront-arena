@@ -1,6 +1,7 @@
 import {Vector3,Quaternion,Euler,MathUtils} from 'three';
 import {reachArm} from './sova-bow.js';
 import {recordedGrip,signatureTrack} from './signature-handling.js';
+import {usesStandardAction} from './skin-articulation.js';
 
 // Keep the socket's animated transform when bringing the elbow down. On some
 // rigs the weapon socket is itself parented to the firing hand.
@@ -22,7 +23,7 @@ export function firearmGrip(rig,weapon,gun){
   const fit=recordedGrip(),support=new Vector3(),axis=new Vector3(),up=new Vector3(),vertical=new Vector3(),cross=new Vector3(),roll=new Quaternion();
   const digits=['Thumb','Index','Middle','Ring','Pinky'].map(n=>rig.getObjectByName('L_'+n+'2'));
   const fingerRest=digits.map(()=>new Quaternion());
-  let active=false;
+  let active=false,lastSkin,standardInspect=false;
   return {
     restore(){
       if(!active)return;
@@ -43,7 +44,8 @@ export function firearmGrip(rig,weapon,gun){
       local.copy(weapon.position);rotation.copy(weapon.quaternion);scale.copy(weapon.scale);
       rig.attach(weapon);active=true;
       const inspect=tag==='inspect'?MathUtils.smoothstep(t,0,.16)*(1-MathUtils.smoothstep(t,.83,1)):0;
-      const turnProfile=twoHanded && !weapon.userData.chaosCore && skin?.motionOn!==false;
+      if(skin!==lastSkin){lastSkin=skin;standardInspect=usesStandardAction(gun,skin,'inspect');}
+      const turnProfile=twoHanded && !standardInspect && !weapon.userData.chaosCore && skin?.motionOn!==false;
       const bareInspect=turnProfile ? .66*inspect : 0;
       const release=tag==='reload'||tag==='equip'?Math.sin(Math.PI*t)**2:0;
       // Yaw the displayed side toward the viewer about the trigger wrist.

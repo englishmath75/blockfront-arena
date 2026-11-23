@@ -8,17 +8,31 @@ import handlingCues from './handling-cues.json' with {type:'json'};
 import knifeFamilies from './melee-families.json' with {type:'json'};
 
 const plateTravel = {singularityep9:.037,araxys:.024,reaver:.012,elderflame:.021,rogue:.005,champions2023:.004};
+// These model-only releases also have individually authored handling events.
+const modelEvents={
+  '43538e40-48bf-0262-d4a7-bbba3c56df77':['inspect'],'a74f77fd-4e69-f16e-b1eb-ceb5198f423d':['inspect'],
+  'a07941d7-42dc-5083-97a1-af850ca6fa26':['inspect'],'464887be-4a07-690e-2d02-e187c8bbe8d5':['inspect'],
+  '95eb82e2-4859-5564-7b3b-ddbf2fb8088d':['inspect','reload'],
+};
+export function usesStandardAction(gun,skin,action){
+  if(!skin || gun==='melee' || skin.levels?.some(type=>type!=='Model') || modelEvents[skin.id]?.includes(action))return false;
+  return !motionAction(skin,action) && !recordedAction(skin,action);
+}
 export function skinArticulation(rig, weapon, gun, skin, actions, baseline) {
   const tracks = handlingTracks(gun,skin);
   if (!tracks) return;
   // Compare the hand clips independently. A bespoke gun mesh may still use
   // the stock inspect, even when its reload has an entirely separate rig clip.
-  for (const name of ['inspect','reload']) {
-    if (actions[name]?.arms && actions[name].arms !== baseline[name]?.arms) tracks[name]=undefined;
+  for(const name of Object.keys(actions)){
+    const clip=actions[name],base=baseline[name];
+    if(clip?.arms && (clip.arms!==base?.arms || clip.armFile!==base?.armFile))tracks[name]=undefined;
+  }
+  for(const name of ['inspect','reload']){
+    if(usesStandardAction(gun,skin,name))tracks[name]=undefined;
   }
   const hand=rig.getObjectByName('R_Hand');
   const plateOffset=skin.visualOn ? plateTravel[skin.banner]??0 : 0;
-  if (!hand || (!tracks.inspect && !tracks.reload && !plateOffset)) return;
+  if(!hand || (!Object.values(tracks).some(Array.isArray) && !plateOffset && !tracks.guard))return;
   const joints=[], assembly=[], plates=[];
   const bind=(name,array,extra={})=>{
     const bone=rig.getObjectByName(name);
