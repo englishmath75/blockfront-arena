@@ -4114,7 +4114,7 @@ function show(target) {
       '<div class="row">' +
       (r && room.host
         ? '<button class="primary" data-action="start-room" ' +
-          (r.players.length < (r.mode === '경쟁전' ? 10 : 2) || r.connected < r.players.length ? 'disabled' : '') +
+          (r.players.length < (r.minimumPlayers ?? 2) || r.connected < r.players.length ? 'disabled' : '') +
           '>경기 시작</button>'
         : '') +
       action('home', '나가기') +

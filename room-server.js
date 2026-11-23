@@ -2,6 +2,8 @@ import { randomUUID, randomBytes } from 'node:crypto';
 import { MAPS } from './arena.js';
 import { AGENTS, GAME_MODES } from './rules.js';
 
+export const minimumPlayers = room => room.queue && room.mode === '경쟁전' ? 10 : 2;
+
 export function roomMiddleware() {
   const rooms = new Map();
   const modes = GAME_MODES;
@@ -10,6 +12,7 @@ export function roomMiddleware() {
     map: room.map,
     mode: room.mode,
     started: room.started,
+    minimumPlayers: minimumPlayers(room),
     connected: [...room.members.values()].filter(m=>m.stream).length,
     host: room.host,
     players: [...room.members.values()].map(({ id, agent, team }) => ({ id, agent, team })),
@@ -152,10 +155,10 @@ export function roomMiddleware() {
         if (
           p.id !== room.host ||
           room.started ||
-          room.members.size < (room.mode === '경쟁전' ? 10 : 2) ||
+          room.members.size < minimumPlayers(room) ||
           ![...room.members.values()].every((m) => m.stream)
         )
-          return reply(409, { error: '접속한 플레이어 두 명이 필요합니다.' });
+          return reply(409, { error: '참가자 연결을 기다리고 있습니다. 시작에 필요한 최소 인원은 ' + minimumPlayers(room) + '명입니다.' });
         room.started = true;
         all(room, 'start', view(room));
       } else if (action === 'leave') leave(room, p);

@@ -1,4 +1,4 @@
-import { fitSkinOutline, muzzleAtMinX } from './skin-outline.js';
+import { fitSkinOutline, muzzleAtMinX, muzzleSocket } from './skin-outline.js';
 import { recordedAction } from './recorded-weapon.js';
 import { motionAction, sampleMotion } from './weapon-motion.js';
 import {skillHandling} from './skill-handling.js';
@@ -512,7 +512,7 @@ export function firstPerson() {
     if (!poses.idle) {disposeSkin?.();weapon.userData.release?.();return;}
     scene.add(rig);
     const eye = rig.getObjectByName('Camera'),
-      muzzle = weapon.getObjectByName('MuzzlePoint') ?? weapon.getObjectByName('Muzzle');
+      muzzle = muzzleSocket(weapon);
     const spark = new T.Sprite(
       new T.SpriteMaterial({
         color: 0xffd27a,

@@ -1,5 +1,6 @@
 import { BufferAttribute,Vector3,Quaternion } from 'three';
 import { reachArm } from './sova-bow.js';
+import { muzzleSocket } from './skin-outline.js';
 
 // First-person meshes end at an open upper-arm cuff. Extend the cuff out of the
 // view frustum, tapering the correction to zero before the elbow.
@@ -26,7 +27,7 @@ export function sleeveEdges(rig){
 }
 
 export function frameGun(rig,gun,eye,enabled){
-  const muzzle=gun.getObjectByName('MuzzlePoint')??gun.getObjectByName('Muzzle'),trigger=gun.getObjectByName('Trigger');
+  const muzzle=muzzleSocket(gun),trigger=gun.getObjectByName('Trigger');
   if(!enabled || !eye || !trigger || !muzzle)return;
   const arms=['L','R'].map(side=>({hand:rig.getObjectByName(side+'_Hand'),reach:reachArm(rig,side,true),
     pos:new Vector3(),turn:new Quaternion()}));

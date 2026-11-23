@@ -3,8 +3,12 @@ import mirrored from './mirrored-chromas.json' with { type: 'json' };
 import { butterflyHinge } from './folding-knife.js';
 import { buildVandalTrim } from './skin-trim.js';
 
+export function muzzleSocket(root) {
+  return root.getObjectByName('MuzzlePoint_Silencer') ?? root.getObjectByName('MuzzlePoint') ?? root.getObjectByName('Muzzle');
+}
+
 export function muzzleAtMinX(root) {
-  const muzzle = root.getObjectByName('Muzzle') ?? root.getObjectByName('MuzzlePoint');
+  const muzzle = muzzleSocket(root);
   if (!muzzle) return true;
   const grip = root.getObjectByName('Trigger') ?? root;
   const localX = (bone) => root.worldToLocal(bone.getWorldPosition(new T.Vector3())).x;

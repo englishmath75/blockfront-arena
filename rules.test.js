@@ -18,13 +18,30 @@ import chromas from './motion-chromas.json' with { type: 'json' };
 import joints from './finger-motion.json' with { type: 'json' };
 import { castField, tickField } from './agent-fields.js';
 import { createZone, tickZone, shieldHit } from './ability-zones.js';
-import { Ray, Vector3 } from 'three';
+import { Group, Ray, Vector3 } from 'three';
 import { parseCrosshair } from './crosshair.js';
 import { scopeLevels,zoomFov } from './optics.js';
 import { anchorPair,crossesWire } from './trapwire.js';
 import { meleeTracks } from './melee-motion.js';
 import { WEAPONS as armory,spreadFor as accuracy } from './rules.js';
 import { PlayerRoom } from './room-client.js';
+import { minimumPlayers } from './room-server.js';
+import { muzzleSocket } from './skin-outline.js';
+
+test('a ranked code room can start with two players and public matchmaking waits for ten',()=>{
+  assert.equal(minimumPlayers({mode:'경쟁전',queue:false}),2);
+  assert.equal(minimumPlayers({mode:'경쟁전',queue:true}),10);
+  assert.equal(minimumPlayers({mode:'사용자 설정 게임',queue:false}),2);
+});
+
+test('suppressed skins attach the flash to the tip of the silencer',()=>{
+  const gun=new Group(),barrel=new Group(),tip=new Group();
+  barrel.name='MuzzlePoint';tip.name='MuzzlePoint_Silencer';
+  gun.add(barrel);
+  assert.equal(muzzleSocket(gun),barrel);
+  barrel.add(tip);
+  assert.equal(muzzleSocket(gun),tip);
+});
 
 test('crosshair codes retain independently configured primary, ADS and sniper sections',()=>{
   const c=parseCrosshair('0;a;1;P;c;8;u;37FFACFF;0l;6;0g;1;0v;3;A;d;1;S;c;5');
