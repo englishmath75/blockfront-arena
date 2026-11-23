@@ -27,7 +27,8 @@ import {wirePath} from './nanowire.js';
 import {damageCredit,eliminationRewards,focus,applyDecay,inCloneFlash,neonDamage} from './agent-combat.js';
 import {worldSculpture,sculptedHand} from './ability-sculptures.js';
 import {Box3} from 'three';
-import { Group, Ray, Vector3 } from 'three';
+import {overdriveBeam} from './overdrive-beam.js';
+import { Group, PerspectiveCamera, Ray, Vector3 } from 'three';
 import { parseCrosshair } from './crosshair.js';
 import { scopeLevels,zoomFov } from './optics.js';
 import { anchorPair,crossesWire } from './trapwire.js';
@@ -491,6 +492,19 @@ test('Meddle cannot kill or double-count overlapping pulses, and Fakeout flashes
   const p={hp:85};applyDecay(p,90,7);applyDecay(p,90,8);
   assert.equal(p.hp,1);assert.equal(p.decayLost,84);assert.equal(p.decayUntil,8);
   const d={x:0,z:0,angle:Math.PI/2};assert(inCloneFlash(d,{x:4,z:1}));assert(!inCloneFlash(d,{x:-2,z:0}));
+});
+test('Overdrive connects the animated hand to the map hit across two fields of view',()=>{
+  const scene=new Group(),tip=new Group(),beam=overdriveBeam(scene);
+  const world=new PerspectiveCamera(72,1.7,.1,190),hand=new PerspectiveCamera(59,1.7,.007,12);
+  world.position.set(5,1,2);world.lookAt(2,.5,-6);world.updateMatrixWorld();
+  tip.position.set(.14,-.18,-.42);const target=new Vector3(1,.8,-10);
+  beam.draw(tip,target.toArray(),world,hand,3);
+  const mesh=scene.children[0],pos=mesh.geometry.attributes.position;
+  const center=i=>new Vector3().fromBufferAttribute(pos,i).lerp(new Vector3().fromBufferAttribute(pos,i+1),.5);
+  assert(center(0).distanceTo(tip.position)<1e-6);
+  const a=center(pos.count-2).project(hand),b=target.clone().project(world);
+  assert(Math.hypot(a.x-b.x,a.y-b.y)<1e-6);
+  beam.draw(tip,null,world,hand,4);assert.equal(mesh.visible,false);beam.dispose();assert.equal(scene.children.length,0);
 });
 test('Overdrive damage follows hit location and range and two kills restore a spent slide',()=>{
   assert.equal(neonDamage(12,'head'),54);assert.equal(neonDamage(20,'body'),12);assert.equal(neonDamage(55,'body'),10);

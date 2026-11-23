@@ -1093,7 +1093,7 @@ function presentStrike(p) {
   for (const v of e.ends.slice(0, 24)) {
     if (!Array.isArray(v) || v.length !== 3 || !v.every(Number.isFinite)) continue;
     const end = new T.Vector3().fromArray(v);
-    if (e.weapon === 'overdrive') world.trace(origin, end, now, '#3bd9ff', 0.12);
+    if(e.weapon==='overdrive'){if(p!==observer())world.trace(origin,end,now,'#3bd9ff',.09);}
     else if (e.weapon === 'blades') world.throwBlade(origin, end, now);
     else world.trace(origin, end, now, palettes[currentSkin(p)?.family]);
   }
@@ -4020,7 +4020,11 @@ function drawWorld(realTime) {
   }
   camera.updateProjectionMatrix();
   world.renderWorld();
-  if (match) world.first.render(world.renderer, camera.aspect);
+  if(match){
+    const watched=observer(),strike=watched.strike;
+    const beam=strike?.weapon==='overdrive' && now-strike.at<.11 && watched.sprinting?strike.ends?.[0]:null;
+    world.first.render(world.renderer,camera.aspect,false,beam,camera);
+  }
 }
 
 const radar = get('map').getContext('2d');

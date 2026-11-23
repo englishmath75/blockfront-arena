@@ -9,6 +9,7 @@ import {gripContact} from './grip-contact.js';
 import { bindFingers } from './finger-pose.js';
 import { skinArticulation } from './skin-articulation.js';
 import { abilityProp } from './skill-prop.js';
+import {overdriveBeam} from './overdrive-beam.js';
 import {authoredHandling,worldSculpture} from './ability-sculptures.js';
 import { usesBow, bowPresentation } from './sova-bow.js';
 import { unpack } from './compressed.js';
@@ -464,6 +465,7 @@ export function firstPerson() {
     clock = 0,
     ready = false;
   const aimPoint = new T.Vector3(), playerEye = new T.Vector3();
+  const beam=overdriveBeam(scene);
   const rack=new Map();
   let generation=0, retryAt=0, retryDelay=450;
   function release(model) {
@@ -581,7 +583,7 @@ export function firstPerson() {
       gun === 'blades'
         ? Array.from({ length: 5 }, (_, i) => weapon.getObjectByName('Knife' + (i + 1)))
         : null;
-    state = { stamp, rig, weapon, eye, muzzle, spark, knives, disposeSkin, armMixer, gunMixer, poses,
+    state = { stamp, rig, weapon, eye, muzzle,beamTip:skill==='오버드라이브'?rig.getObjectByName('R_Index3'):null, spark, knives, disposeSkin, armMixer, gunMixer, poses,
       supportHand:rig.getObjectByName('L_Hand'),
       gesture:skill && !native?.idle && !usesBow(skill)?authoredHandling(rig,weapon,eye,skill)??skillHandling(rig,weapon,eye,skill):null,
       bow:usesBow(skill)?bowPresentation(rig,weapon,skill,eye):null,
@@ -749,7 +751,7 @@ export function firstPerson() {
         if(isCurrent()){this.update(p,gun,skin,now,true,reload);await this.loading;}
       }
     },
-    render(renderer, aspect, showcase=false) {
+    render(renderer, aspect, showcase=false,hit=null,worldCamera=null) {
       if (!this.visible) return;
       if(showcase){
         playerEye.copy(cam.position);
@@ -758,6 +760,7 @@ export function firstPerson() {
       }
       cam.aspect = aspect;
       cam.updateProjectionMatrix();
+      beam.draw(state?.beamTip,hit,worldCamera,cam,clock);
       renderer.autoClear = false;
       renderer.clearDepth();
       renderer.render(scene, cam);
@@ -769,7 +772,7 @@ export function firstPerson() {
       generation++;
       if(state)release(state);
       for(const old of rack.values())release(old);
-      rack.clear();state=null;ready=false;this.visible=false;
+      beam.dispose();rack.clear();state=null;ready=false;this.visible=false;
     },
     scene,
     cam,
