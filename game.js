@@ -4487,6 +4487,7 @@ stateKeys.push(
   'mustKillBy',
   'vulnerable',
   'netUntil',
+  'trappedBy', 'downedKayo',
   'trailEnd','trailOrigin','trailTeam','netRemoval',
 );
 function snapshot() {
