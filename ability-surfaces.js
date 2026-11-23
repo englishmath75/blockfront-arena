@@ -3,6 +3,9 @@ import {worldSculpture} from './ability-sculptures.js';
 
 const floor=new T.PlaneGeometry(1,1).rotateX(-Math.PI/2);
 const orb=new T.SphereGeometry(.5,32,20),wall=new T.BoxGeometry(1,1,1),curtain=new T.PlaneGeometry(1,1);
+// A sixty-degree sound front in local space. Its normalized footprint follows
+// the same circular range and angle used to test players against Bassquake.
+const bassArc=new T.CylinderGeometry(1,1,1,40,5,true,Math.PI*5/6,Math.PI/3);
 const cylinder=new T.CylinderGeometry(.5,.5,1,64,1,true);
 const vertex=`varying vec2 uv0;varying vec3 local;
 void main(){uv0=uv;local=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`;
@@ -48,7 +51,11 @@ void main(){
     float beat=filament(poly*2.9-front*2.7,.036),rim=line(r-.98,.018);
     c=mix(style==24.?vec3(.008,.24,.16):vec3(.20,.03,.31),style==24.?vec3(.43,1.,.67):vec3(1.,.67,.12),beat+rim);
     a=step(r,1.)*(.10+.69*beat+.57*rim);
-    if(style==25.){float arc=filament(v.x*3.+v.y*1.5-t*.8,.07);c=mix(vec3(.48,.045,.39),vec3(1.,.75,.17),arc);a=.1+.66*arc;}
+    if(style==25.){float side=abs(p.x),height=.28+.68*sqrt(max(0.,1.-p.x*p.x));
+      float ringLine=filament(length(vec2(p.x*1.36,v.y)) * 3.1-front*1.4,.022);
+      float fabric=.5+.5*sin(p.x*12.+v.y*3.-t*8.);
+      a=(.09+.13*fabric+.72*ringLine)*(1.-smoothstep(height-.15,height,v.y))*(1.-smoothstep(.85,1.,side));
+      c=mix(vec3(.36,.018,.23),vec3(1.,.67,.28),ringLine+.16*fabric);}
   }else if(style==26. || style==27. || style==28.){
     float surf=sin(v.x*21.+v.y*7.+sin(v.y*14.-t*1.1)*2.+t*.6);
     float vein=filament(v.y*3.-v.x*2.+surf*.31-t*.29,.035),rim=filament(v.x*2.+v.y+surf*.13-t*.12,.021);
@@ -63,6 +70,12 @@ void main(){
     c=style==29.?mix(vec3(.18,.008,.28),vec3(1.,.14,.81),max(wires,mote)):
       style==30.?mix(vec3(.08,.037,.12),vec3(.64,.50,.81),wires):mix(vec3(.015,.09,.16),vec3(.20,.87,.96),wires);
     c=mix(c,vec3(1.,.68,.18),mote*.9);a=step(r,1.)*(.17+wires*.68+mote*.39+edge*.72);
+  }else if(style==35. || style==36.){
+    float ray=atan(p.y,p.x),rim=line(r-.99,.009),echo=line(r-front,.022);
+    if(style==35.){c=mix(vec3(.10,.39,.46),vec3(.37,1.,.97),echo);a=step(r,1.)*(rim*.79+echo*.22);}
+    else{float poly=r*cos(mod(ray+3.14159/5.,6.28318/5.)-3.14159/5.);
+      c=mix(vec3(.50,.13,.80),vec3(1.,.78,.24),echo);
+      a=step(r,1.)*(.78*filament(poly*2.-front*1.75,.03)+.15*rim);}
   }else if(style==32.){
     float plate=fract(v.x*12.-v.y*.82),ridge=smoothstep(.72,.99,plate);
     c=mix(vec3(.14,.11,.20),vec3(.52,.48,.60),ridge+.17*v.y);
@@ -167,6 +180,29 @@ export function warmAbilitySurface(){
 const saturate=T.MathUtils.clamp;
 const up=new T.Vector3(0,1,0),axis=new T.Vector3(),node=new T.Object3D();
 const thorn=new T.ConeGeometry(.075,.57,4),alloy=new T.MeshStandardMaterial({color:0xa28ba8,metalness:.79,roughness:.32,emissive:0x2a0d31});
+const nanoShard=new T.OctahedronGeometry(1),nanoPink=new T.MeshBasicMaterial({color:0xff70de});
+function swarmMotes(mesh,radius){
+  const fragments=new T.InstancedMesh(nanoShard,nanoPink,58);
+  for(let i=0;i<58;i++){
+    const angle=i*2.399963,r=.94*radius*Math.sqrt((i+.5)/58);
+    node.position.set(Math.cos(angle)*r,.13+.9*(.5+.5*Math.sin(74.6*i)),Math.sin(angle)*r);
+    node.rotation.set(angle,angle*1.6,.38*i);node.scale.set(.019,.045,.017);node.updateMatrix();fragments.setMatrixAt(i,node.matrix);
+  }
+  fragments.scale.set(1/(2*radius),1,1/(2*radius));mesh.add(fragments);return fragments;
+}
+function lockdownCountdown(d,now){
+  const parent=d.mesh;
+  if(!parent.userData.alarm){
+    const radial=new T.Mesh(floor,makeMaterial(35));radial.scale.set(65,1,65);parent.add(radial);
+    const rays=new T.Mesh(cylinder,makeMaterial(34));rays.scale.set(.46,2.5,.46);parent.add(rays);
+    parent.userData.alarm={radial,rays};
+    parent.userData.disposeField=()=>{radial.material.dispose();rays.material.dispose();};
+  }
+  const {radial,rays}=parent.userData.alarm,elapsed=now-d.born,f=1-(elapsed%2)/2;
+  radial.position.y=-.50;radial.material.uniforms.front.value=f;
+  rays.position.y=.79;rays.rotation.y=elapsed*.9;rays.material.uniforms.front.value=f;
+  rays.material.uniforms.t.value=now;rays.material.uniforms.alpha.value=.4+.55*Math.pow(1-f,3);
+}
 function plantBriars(mesh,radius){
   const thorns=new T.InstancedMesh(thorn,alloy,96);
   for(let i=0;i<96;i++){const a=i*2.399963,r=radius*Math.sqrt((i+.5)/96),h=.48+.52*Math.abs(Math.sin(i*41.1));
@@ -191,9 +227,13 @@ function presentNew(d,mesh,style,now){
     mesh.scale.set(d.w*grow,d.h*grow,d.d*grow);mesh.position.set(d.x,d.y+d.h*.5,d.z);
     u.style.value=d.shield?28:style;
   }else if(style===28 || style===32 || style===25){
-    const bass=d.type==='groundWave',rise=saturate((style===32?age:dt)/.26,.001,1);
-    const width=bass?Math.max(.02,2*Math.min(d.reach,Math.max(0,dt*d.speed))*Math.tan(Math.PI/6)):d.w;
-    const h=(bass?4.7:d.h)*rise;
+    if(d.type==='groundWave'){
+      const reach=saturate(dt*d.speed,.015,d.reach),h=3.6+1.4*Math.sin(Math.PI*reach/d.reach);
+      mesh.scale.set(reach,h,reach);mesh.rotation.y=d.angle;mesh.position.set(d.originX,d.y+h*.5,d.originZ);
+      mesh.visible=dt>=0;u.front.value=reach/d.reach;return;
+    }
+    const rise=saturate((style===32?age:dt)/.26,.001,1);
+    const width=d.w,h=d.h*rise;
     mesh.rotation.y=d.angle??0;mesh.scale.set(width,h,d.d);mesh.position.set(d.x,d.y+h*.5,d.z);
     mesh.visible=style===32 || dt>=0;
   }else{
@@ -201,10 +241,27 @@ function presentNew(d,mesh,style,now){
     u.front.value=d.kind==='steel'?saturate(age/4.4,.01,1):dt<0?saturate(1+dt,.01,1):(dt%(d.gap??1.25))/(d.gap??1.25);
     u.alpha.value*=dt<0?.35:1;
     if(d.kind==='vineField' && !mesh.children.length)plantBriars(mesh,r);
+    if(d.kind==='swarmField'){
+      const particles=mesh.userData.motes??=swarmMotes(mesh,r);
+      particles.rotation.y=age*.82;particles.position.y=.10*Math.sin(age*8);
+      if(!mesh.userData.disposeField)mesh.userData.disposeField=()=>particles.dispose();
+    }
+    if(d.kind==='mpulse'){
+      if(!mesh.userData.wave){
+        const ring=new T.Mesh(orb,makeMaterial(36)),device=worldSculpture(d.name,.28);
+        mesh.add(ring,device);mesh.userData.wave=ring;device.scale.x/=2*r;device.scale.z/=2*r;device.position.y=.11;
+        mesh.userData.disposeField=()=>ring.material.dispose();
+      }
+      const ring=mesh.userData.wave,beat=dt<0?0:(dt%d.gap)/d.gap;
+      ring.visible=dt>=0 && beat<.47;ring.scale.set(beat*1.85+.10,Math.min(1,beat*2.1+.08)*r*1.75,beat*1.85+.10);
+      ring.material.uniforms.style.value=d.heal?24:36;ring.material.uniforms.front.value=beat;
+      ring.material.uniforms.alpha.value=(1-beat)*.8;
+    }
   }
 }
 export function presentAbility(d,now){
   const mesh=d.mesh,kind=d.kind;
+  if(kind==='lockdown')lockdownCountdown(d,now);
   if(kind==='shearCollider'){mesh.visible=false;return true;}
   let sculpt,span,height;
   if(d.type==='haunt'){sculpt='귀체';span=.72;height=.39;}
@@ -231,7 +288,7 @@ export function presentAbility(d,now){
     mesh.material.dispose();mesh.material=makeMaterial(style);mesh.userData.abilitySurface=true;
     mesh.geometry=style===15 || style===19?cylinder:style<=3 || [6,12,17,18].includes(style)?floor:style===4 || style===11?wall:orb;
     if(kind==='rose')for(const child of mesh.children)child.visible=false;
-    if(style>=21)mesh.geometry=style===21 || kind==='harmony'?cylinder:[23,24,29,30,31].includes(style)?floor:[25,28,32].includes(style)?wall:orb;
+    if(style>=21)mesh.geometry=style===25 && d.type==='groundWave'?bassArc:style===21 || kind==='harmony'?cylinder:[23,24,29,30,31].includes(style)?floor:[25,28,32].includes(style)?wall:orb;
     if(style<=3){
       const face=new T.Mesh(curtain,makeMaterial(style===3?13:14));mesh.add(face);mesh.userData.face=face;
       mesh.userData.disposeField=()=>face.material.dispose();

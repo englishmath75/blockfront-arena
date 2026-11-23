@@ -189,7 +189,7 @@ export function tickField(d, owner, dt, ctx) {
       const lateral=Math.abs(dx*cos-dz*sin);
       if (along<0 || along>d.reach || lateral>d.w/2) continue;
       if (effect==='hinder' ? lateral>advance : effect!=='concuss' && along>advance+1) continue;
-      if (effect==='bass' && (Math.hypot(dx,dz)>d.reach || lateral>along*Math.tan(Math.PI/6))) continue;
+      if (effect==='bass' && (Math.hypot(dx,dz)>Math.min(d.reach,advance+1) || lateral>along*Math.tan(Math.PI/6))) continue;
       if (effect === 'terror' && !hostile(owner, o)) continue;
       d.touched.push(o.id);
       if (effect === 'terror') {
