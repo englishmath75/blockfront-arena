@@ -92,7 +92,8 @@ export async function fitSkinOutline(root, url, skin) {
       weights = mesh.geometry.attributes.skinWeight;
     const local = new T.Matrix4().multiplyMatrices(inverse, mesh.matrixWorld);
     for (let i = 0; i < pos.count; i += Math.max(1, Math.floor(pos.count / 1800))) {
-      point.fromBufferAttribute(pos, i).applyMatrix4(local);
+      // The bind-space vertex array can face the opposite way to the live skeleton.
+      mesh.getVertexPosition(i, point).applyMatrix4(local);
       bounds.expandByPoint(point);
       let bone = mesh.parent;
       if (joints && weights && mesh.skeleton) {
@@ -106,7 +107,8 @@ export async function fitSkinOutline(root, url, skin) {
   if (bounds.isEmpty()) throw Error('스킨 기준 모델을 읽을 수 없습니다.');
   const size = bounds.getSize(new T.Vector3()),
     center = bounds.getCenter(new T.Vector3());
-  const forward = muzzleAtMinX(root) !== mirrored.includes(skin?.variant);
+  const muzzleLeft=muzzleAtMinX(root), mirroredArt=mirrored.includes(skin?.variant);
+  const forward=muzzleLeft!==mirroredArt;
   const unit = size.x / (art.right - art.left);
   const worldX = (x) =>
     forward ? bounds.min.x + (x - art.left) * unit : bounds.max.x - (x - art.left) * unit;
@@ -148,7 +150,8 @@ export async function fitSkinOutline(root, url, skin) {
   }
   function stripGroup(x, strip) {
     const mid = (strip[0] + strip[1]) * 0.5,
-      normalized = (x + 0.5 - art.left) / (art.right - art.left);
+      column = (x + 0.5 - art.left) / (art.right - art.left),
+      normalized = mirroredArt ? 1-column : column;
     const section =
       animatedPlates && mid < art.top + (art.bottom - art.top) * 0.48 && normalized < 0.84
         ? Math.floor(normalized * 4) + 1
@@ -235,7 +238,7 @@ export async function fitSkinOutline(root, url, skin) {
   const mount = attachment(art.left + (art.right - art.left) * 0.52, art.top + (art.bottom - art.top) * 0.15);
   const releaseTrim =
     skin &&
-    buildVandalTrim(root, mount, skin, bounds, forward, (art.bottom - art.top) / (art.right - art.left));
+    buildVandalTrim(root, mount, skin, bounds, muzzleLeft, (art.bottom - art.top) / (art.right - art.left));
   return () => {
     delete root.userData.foldBlade;
     spare.removeFromParent();
