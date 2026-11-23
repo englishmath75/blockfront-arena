@@ -4071,7 +4071,7 @@ function show(target) {
       '</div>';
   if (target === 'join')
     content =
-      heading('사용자 설정 게임', '방 코드로 참가') +
+      heading('플레이', '방 코드로 참가') +
       '<label class="field">방 코드<input id="room-code" maxlength="6" autocomplete="off"></label><div class="row">' +
       action('join-confirm', '요원 선택', true) +
       action('home', '돌아가기') +
@@ -4722,8 +4722,9 @@ menu.addEventListener('click', async (event) => {
       show('select');
       break;
     case 'find':
+    case 'create-room':
       mode = 'match';
-      selectDestination = playlist === '사용자 설정 게임' ? 'create' : 'queue';
+      selectDestination = d.action === 'create-room' || playlist === '사용자 설정 게임' ? 'create' : 'queue';
       notice = '';
       joinCode = '';
       show('select');

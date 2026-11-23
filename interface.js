@@ -31,6 +31,7 @@ export function lobby(map, mode) {
     '</select></label>' +
     '<div class="row">' +
     btn('find', mode === '사용자 설정 게임' ? '방 만들기' : '대전 찾기', 'primary') +
+    (mode === '사용자 설정 게임' ? '' : btn('create-room','친구와 방 만들기')) +
     btn('join', '코드로 참가') +
     btn('tour', '맵 자유 연습') +
     '</div>' +
