@@ -38,6 +38,39 @@ void main(){
     float net=max(filament((p.x+p.y)*4.+sin(p.y*6.)*.15,.018),filament((p.x-p.y)*4.,.018));
     float rim=line(r-front,.035);a=(.10+.55*net)*step(r,front)+rim*.96;
     c=mix(vec3(.16,.32,.84),vec3(.72,1.,1.),rim+net*.45);
+  }else if(style==21. || style==22.){
+    float plasma=filament(v.y*8.+v.x*4.+sin(v.x*31.-t*10.)*.43-t*8.,.06);
+    float bolt=filament(v.x*7.+sin(v.y*29.+t*12.)*.16,.045);
+    c=mix(vec3(.015,.11,.85),vec3(.63,.98,1.),max(plasma,bolt));
+    a=(.10+.65*plasma+.34*bolt)*(.78+.22*sin(v.y*3.14));
+  }else if(style==23. || style==24. || style==25.){
+    float phi=atan(p.y,p.x),poly=r*cos(mod(phi+3.14159/5.,6.28318/5.)-3.14159/5.);
+    float beat=filament(poly*2.9-front*2.7,.036),rim=line(r-.98,.018);
+    c=mix(style==24.?vec3(.008,.24,.16):vec3(.20,.03,.31),style==24.?vec3(.43,1.,.67):vec3(1.,.67,.12),beat+rim);
+    a=step(r,1.)*(.10+.69*beat+.57*rim);
+    if(style==25.){float arc=filament(v.x*3.+v.y*1.5-t*.8,.07);c=mix(vec3(.48,.045,.39),vec3(1.,.75,.17),arc);a=.1+.66*arc;}
+  }else if(style==26. || style==27. || style==28.){
+    float surf=sin(v.x*21.+v.y*7.+sin(v.y*14.-t*1.1)*2.+t*.6);
+    float vein=filament(v.y*3.-v.x*2.+surf*.31-t*.29,.035),rim=filament(v.x*2.+v.y+surf*.13-t*.12,.021);
+    c=style==26.?mix(vec3(.18,.095,.37),vec3(.30,.84,.58),smoothstep(-.55,.75,surf)):mix(vec3(.011,.062,.14),vec3(.04,.39,.48),.52+.45*surf);
+    c=mix(c,vec3(.82,.98,.95),vein*.86);
+    c=mix(c,vec3(1.,.70,.27),rim*(style==28.?.98:.44));
+    a=.985;
+  }else if(style==29. || style==30. || style==31.){
+    float phi=atan(p.y,p.x),jag=floor(r*17.)*.13;
+    float wires=filament(phi*5.9+r*(style==31.?4.:1.7)+sin(r*14.+t*.5)*.31+jag,.06);
+    float edge=line(r-front,.04),mote=pow(max(0.,cos(phi*17.+r*22.-t*7.)),18.)*wires;
+    c=style==29.?mix(vec3(.18,.008,.28),vec3(1.,.14,.81),max(wires,mote)):
+      style==30.?mix(vec3(.08,.037,.12),vec3(.64,.50,.81),wires):mix(vec3(.015,.09,.16),vec3(.20,.87,.96),wires);
+    c=mix(c,vec3(1.,.68,.18),mote*.9);a=step(r,1.)*(.17+wires*.68+mote*.39+edge*.72);
+  }else if(style==32.){
+    float plate=fract(v.x*12.-v.y*.82),ridge=smoothstep(.72,.99,plate);
+    c=mix(vec3(.14,.11,.20),vec3(.52,.48,.60),ridge+.17*v.y);
+    c=mix(c,vec3(.89,.25,.76),smoothstep(.78,.98,v.y));a=1.;
+  }else if(style==33. || style==34.){
+    float spoke=filament(v.x*15.+sin(v.y*11.)*.3-t*.7,.057),wave=filament(v.y*4.-front*2.,.065);
+    c=style==33.?mix(vec3(.21,.05,.38),vec3(.99,.72,.32),max(spoke,wave)):mix(vec3(.01,.42,.42),vec3(.34,1.,.9),wave);
+    a=.045+spoke*.26+wave*.63;
   }else if(style==15.){
     float scan=filament(v.y*41.+sin(v.x*31.-t*2.)*.20-t*.6,.135);
     float edge=exp(-min(v.y,1.-v.y)*28.);
@@ -94,6 +127,19 @@ void main(){
 }`;
 const waveStyles={'균열':1,'지진 강타':2,'황혼':3};
 function surfaceStyle(d){
+  if(d.type==='hunterBeam')return 21;
+  if(d.type==='shockBurst')return 22;
+  if(d.kind==='mpulse')return d.heal?24:23;
+  if(d.kind==='harmony' || d.name==='요동치는 베이스')return 25;
+  if(d.kind==='waveform')return 26;
+  if(d.kind==='cove')return 27;
+  if(d.kind==='reckoning')return 28;
+  if(d.kind==='swarmField')return 29;
+  if(d.kind==='vineField' || d.kind==='steel')return 30;
+  if(d.kind==='storm')return 31;
+  if(d.kind==='shearWall')return 32;
+  if(d.type==='wallFlash' && d.kind==='rose')return 33;
+  if(d.type==='sonar' && d.name==='봉쇄')return 34;
   if(d.kind==='cyberCage')return 15;
   if(d.kind==='paintBurst' || d.type==='sonar' && d.name==='폭발 봇')return 16;
   if(d.type==='zoneEmitter' && d.kind==='fragment' || d.type==='sonar' && ['무력화/명령','제로/포인트'].includes(d.name))return 17;
@@ -119,8 +165,47 @@ export function warmAbilitySurface(){
   return new T.Mesh(orb,makeMaterial(7));
 }
 const saturate=T.MathUtils.clamp;
+const up=new T.Vector3(0,1,0),axis=new T.Vector3(),node=new T.Object3D();
+const thorn=new T.ConeGeometry(.075,.57,4),alloy=new T.MeshStandardMaterial({color:0xa28ba8,metalness:.79,roughness:.32,emissive:0x2a0d31});
+function plantBriars(mesh,radius){
+  const thorns=new T.InstancedMesh(thorn,alloy,96);
+  for(let i=0;i<96;i++){const a=i*2.399963,r=radius*Math.sqrt((i+.5)/96),h=.48+.52*Math.abs(Math.sin(i*41.1));
+    node.position.set(Math.cos(a)*r,.17*h,Math.sin(a)*r);
+    node.scale.set(.9,h,1);node.rotation.set(.55*Math.sin(a),a,.61*Math.cos(a));node.updateMatrix();thorns.setMatrixAt(i,node.matrix);}
+  mesh.add(thorns);thorns.scale.set(1/(2*radius),1,1/(2*radius));
+  mesh.userData.disposeField=()=>thorns.dispose();
+}
+function presentNew(d,mesh,style,now){
+  const u=mesh.material.uniforms,age=now-d.born,dt=now-(d.start??d.born),r=d.radius??d.w*.5;
+  if(style===21){
+    axis.fromArray(d.axis);mesh.quaternion.setFromUnitVectors(up,axis);
+    const width=dt<0?.09+.12*age:2*r*(.4+.6*Math.sin(Math.PI*saturate(dt/.45,0,1)));
+    mesh.position.set(d.x+axis.x*d.length*.5,d.y+axis.y*d.length*.5,d.z+axis.z*d.length*.5);
+    mesh.scale.set(width,d.length,width);u.alpha.value*=dt<0?.55:1;
+  }else if(style===22 || style===33 || style===34){
+    const phase=style===34?saturate(age/(d.end-d.born),.02,1):saturate(dt/.35,.02,1);
+    const size=style===33?.18+.65*phase:(style===34?d.w:2*r)*phase;
+    mesh.scale.setScalar(size);mesh.position.set(d.x,d.y+(style===34?d.h*.5:0),d.z);u.front.value=phase;
+  }else if(style===26 || style===27){
+    const grow=saturate(dt/.22,.001,1);mesh.visible=dt>=0;
+    mesh.scale.set(d.w*grow,d.h*grow,d.d*grow);mesh.position.set(d.x,d.y+d.h*.5,d.z);
+    u.style.value=d.shield?28:style;
+  }else if(style===28 || style===32 || style===25){
+    const bass=d.type==='groundWave',rise=saturate((style===32?age:dt)/.26,.001,1);
+    const width=bass?Math.max(.02,2*Math.min(d.reach,Math.max(0,dt*d.speed))*Math.tan(Math.PI/6)):d.w;
+    const h=(bass?4.7:d.h)*rise;
+    mesh.rotation.y=d.angle??0;mesh.scale.set(width,h,d.d);mesh.position.set(d.x,d.y+h*.5,d.z);
+    mesh.visible=style===32 || dt>=0;
+  }else{
+    mesh.position.set(d.x,d.y+.048,d.z);mesh.scale.set(2*r,1,2*r);
+    u.front.value=d.kind==='steel'?saturate(age/4.4,.01,1):dt<0?saturate(1+dt,.01,1):(dt%(d.gap??1.25))/(d.gap??1.25);
+    u.alpha.value*=dt<0?.35:1;
+    if(d.kind==='vineField' && !mesh.children.length)plantBriars(mesh,r);
+  }
+}
 export function presentAbility(d,now){
   const mesh=d.mesh,kind=d.kind;
+  if(kind==='shearCollider'){mesh.visible=false;return true;}
   let sculpt,span,height;
   if(d.type==='haunt'){sculpt='귀체';span=.72;height=.39;}
   else if(kind==='prowler'){sculpt='추적귀';span=1.1;height=.37;}
@@ -145,6 +230,8 @@ export function presentAbility(d,now){
   if(!mesh.userData.abilitySurface){
     mesh.material.dispose();mesh.material=makeMaterial(style);mesh.userData.abilitySurface=true;
     mesh.geometry=style===15 || style===19?cylinder:style<=3 || [6,12,17,18].includes(style)?floor:style===4 || style===11?wall:orb;
+    if(kind==='rose')for(const child of mesh.children)child.visible=false;
+    if(style>=21)mesh.geometry=style===21 || kind==='harmony'?cylinder:[23,24,29,30,31].includes(style)?floor:[25,28,32].includes(style)?wall:orb;
     if(style<=3){
       const face=new T.Mesh(curtain,makeMaterial(style===3?13:14));mesh.add(face);mesh.userData.face=face;
       mesh.userData.disposeField=()=>face.material.dispose();
@@ -153,6 +240,7 @@ export function presentAbility(d,now){
   const uniforms=mesh.material.uniforms,age=now-d.born,dt=now-(d.start??d.born);
   uniforms.t.value=now;uniforms.age.value=age;uniforms.alpha.value=saturate((d.end-now)*8,0,1);
   mesh.visible=true;
+  if(style>=21){presentNew(d,mesh,style,now);return true;}
   if(style>=15 && style<=19){
     const q=saturate(age/Math.max(.01,d.end-d.born),0,1);
     if(style===15){const h=d.h*saturate(age/.16,.005,1);mesh.scale.set(d.w,h,d.d);mesh.position.set(d.x,d.y+h*.5,d.z);}

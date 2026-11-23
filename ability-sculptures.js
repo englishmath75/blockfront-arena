@@ -120,9 +120,40 @@ function carvedTrinket(kind,part,strand){
   }
   part(sphere,seeker?blue:vein,0,.041,0,.026,.027,.026);
 }
+const instruments=new Set(['M-파동','화음','웨이브폼','요동치는 베이스','폭풍 쇄도','만조','해만','심판','가지치기','강철 정원']);
+const ocean=metal(0x176679,.65),lilac=metal(0x7354a4,.43);
+function instrument(kind,part,strand){
+  if(['폭풍 쇄도','만조','해만','심판'].includes(kind)){
+    const broad=kind==='심판'?.079:.058;
+    for(let n=0;n<3;n++){
+      part(ring,n===1?ocean:gold,0,0,(n-1)*.027,broad,.048,.055);
+      for(let j=0;j<6;j++){const a=j*Math.PI/3;
+        part(sphere,gold,Math.sin(a)*broad,Math.cos(a)*.047,(n-1)*.027,.017,.012,.021,0,0,-a);}
+    }
+    const radius=kind==='폭풍 쇄도'?.047:kind==='해만'?.039:.027;
+    part(sphere,ocean,0,.067,-.019,radius,radius,radius);part(ring,amber,0,.068,-.019,radius*1.23,radius*1.23,radius,.85,.5);
+    for(let i=0;i<3;i++)part(ring,i===1?pearl:aqua,0,.066,-.019,radius*1.09,radius*.99,radius,.65+i*.81,.38+i*.83);
+  }else if(kind==='가지치기' || kind==='강철 정원'){
+    const count=kind==='가지치기'?5:8;
+    for(let i=0;i<count;i++){
+      const a=i*2*Math.PI/count,c=Math.cos(a),s=Math.sin(a);
+      strand(i%2?steel:pearl,[[0,-.02,0],[.053*c,-.008,.053*s],[.076*c,.025,.076*s],[.046*Math.cos(a+.6),.082,.046*Math.sin(a+.6)]],.009);
+      part(spike,i%2?lilac:violet,.059*c,.039,.059*s,.017,.065,.014,-.42*s,0,.42*c);
+    }
+  }else{
+    const radio=kind==='M-파동',map=kind==='웨이브폼',bass=kind==='요동치는 베이스';
+    part(sphere,ink,0,0,0,radio?.052:.054,radio?.039:.021,radio?.068:.055);
+    part(sphere,lilac,0,.014,-.012,.048,.022,.052);
+    for(let n=0;n<(bass?4:2);n++)part(ring,n%2?amber:pearl,0,.034+n*.005,-.012,.023+n*.007,.023+n*.007,.025,Math.PI/2);
+    for(let j=0;j<7;j++)part(box,radio?amber:violet,(j-3)*.009,.040,-.032,.004,.004,.007+.013*Math.abs(Math.sin(j*1.24)));
+    if(map){part(ring,amber,0,.09,0,.105,.105,.105,.26);part(ring,violet,0,.09,0,.098,.098,.098,.26);}
+    if(radio)for(const s of [-1,1])part(box,steel,s*.043,0,0,.015,.042,.08,0,0,s*.22);
+  }
+}
 function prototype(kind){
   if(!cache.has(kind))cache.set(kind,bake((part,strand)=>{
-    if(['재생','추적자','파편/탄','무력화/명령'].includes(kind))carvedTrinket(kind,part,strand);
+    if(instruments.has(kind))instrument(kind,part,strand);
+    else if(['재생','추적자','파편/탄','무력화/명령'].includes(kind))carvedTrinket(kind,part,strand);
     else if(['귀체','포박','추적귀','황혼'].includes(kind))nightmare(kind,part,strand);
     else if(['여진','섬광 폭발','균열','지진 강타'].includes(kind))bracer(kind,part);
     else if(['특별 배송','유도 일제 사격','아마겟돈'].includes(kind))transmitter(kind,part);
@@ -136,10 +167,13 @@ function prototype(kind){
 }
 const held=new Set(['귀체','포박','추적귀','황혼','여진','섬광 폭발','균열','지진 강타','특별 배송','유도 일제 사격','아마겟돈']);
 export function sculptedHand(skill){
-  if(!held.has(skill) && !['재생','추적자','파편/탄','무력화/명령'].includes(skill))return;
+  if(!held.has(skill) && !instruments.has(skill) && !['재생','추적자','파편/탄','무력화/명령'].includes(skill))return;
   const root=new T.Group(),prop=prototype(skill).clone();root.add(prop);root.userData.authoredSkill=true;
   const floating=['귀체','포박','추적귀','황혼','추적자','재생'].includes(skill);
-  root.userData.animate=(time,tag,progress)=>{
+  const leds=skill==='M-파동'?prop.children.filter(m=>m.material===amber):[];
+  root.userData.animate=(time,tag,progress,heal)=>{
+    for(const led of leds)led.material=heal?aqua:amber;
+    if(instruments.has(skill) && !['만조','해만','심판'].includes(skill))prop.rotation.y=.10*Math.sin(time*2.8);
     const casting=['throw','place','short throw','cast','fire'].includes(tag);
     prop.visible=!(floating && casting && progress>.43);
     if(floating){prop.rotation.y=.28*Math.sin(time*2.5);prop.position.y=.035+.005*Math.sin(time*4);}
@@ -147,10 +181,10 @@ export function sculptedHand(skill){
   return root;
 }
 export function authoredHandling(rig,prop,eye,skill){
-  if(!eye || (!prop.userData.authoredSkill && skill!=='잠입 드론'))return;
+  if(!eye || (!prop.userData.authoredSkill && !['잠입 드론','아크 장미','면도날 덩굴'].includes(skill)))return;
   const shade=['귀체','추적귀','포박','황혼','추적자','재생'].includes(skill);
   const brace=['여진','균열','섬광 폭발','지진 강타'].includes(skill),drone=skill==='잠입 드론';
-  const tablet=skill==='유도 일제 사격' || skill==='아마겟돈';
+  const tablet=['유도 일제 사격','아마겟돈','웨이브폼','만조','해만','심판','화음','요동치는 베이스'].includes(skill);
   const wrist=brace && skill==='섬광 폭발' || tablet || skill==='파편/탄' || skill==='재생'?'L':'R';
   const hand=rig.getObjectByName(wrist+'_Hand'),elbow=rig.getObjectByName(wrist+'_Elbow');
   if(!hand || !elbow)return;
@@ -177,8 +211,9 @@ export function authoredHandling(rig,prop,eye,skill){
     const lower=tag==='equip'?.09*(1-T.MathUtils.smoothstep(ratio,0,.65)):0;
     eye.getWorldPosition(at);
     const side=wrist==='L'?-1:1;
-    const palmDepth=shade?.54:drone?.48:brace?.52:.45;
-    target.copy(at).add(direction.set(palmDepth+release*.13,(shade?-.095:-.15)-lower+.055*release,side*(tablet?.225:.18)));
+    const wristTool=tablet && instruments.has(skill);
+    const palmDepth=shade?.54:drone?.48:brace?.52:wristTool?.52:.45;
+    target.copy(at).add(direction.set(palmDepth+release*.13,(shade?-.095:-.15)-lower+.055*release,side*(wristTool?.12:tablet?.225:.18)));
     other.copy(at).add(direction.set(.45+.052*release,-.19-lower,-side*(tablet?.24:drone?.095:.21)));
     if(wrist==='R'){right(target,rightPole);left(other,leftPole);}else{left(target,leftPole);right(other,rightPole);}
     for(const f of fingers)f.rotateX(shade?-.16:drone?.09:-.04);

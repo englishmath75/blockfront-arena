@@ -1,5 +1,6 @@
 import { triangleTerrain } from './triangle-terrain.js';
 import { terrainFeedback } from './terrain-feedback.js';
+import {domeBoundary} from './deployed-fields.js';
 import { visionDistance } from './field-effects.js';
 import { drawScenery } from './scenery.js';
 import {playerVisibility} from './player-visibility.js';
@@ -424,6 +425,13 @@ export function createWorld(canvas, data) {
     }
     for (const d of devices) {
       if (vision) distance = visionDistance(line, d, clock, distance);
+      if(d.kind==='cove'){
+        if(!vision && d.shield && d.hp>0 && d.end>clock){
+          const hit=domeBoundary(line,d,distance);
+          if(hit<distance){distance=hit;if(result){result.mechanism=null;result.device=d;}}
+        }
+        continue;
+      }
       if (d.type === 'plane' && clock >= (d.start ?? 0) && (vision || d.bulletWall))
         distance = shieldHit(line, d, distance);
       if (d.type === 'wall' || (!vision && result && d.hp > 0)) {

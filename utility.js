@@ -47,6 +47,7 @@ const throws = {
   '사이버 감옥':['cageDisc',15,14,6],
   '대미 장식': ['rocket', 35, 0, 4],
   '자극제 신호기': ['stim', 8, 15, 3],
+  '면도날 덩굴':['vinePod',17,14,5],
   나노스웜: ['swarm', 17, 14, 4],
 };
 export const hasThrow = (n) => Object.hasOwn(throws, n);
@@ -159,7 +160,7 @@ export function flight(a, dt, now, world, devices, owner) {
   a.x += norm.x * 0.035;
   a.y += norm.y * 0.035;
   a.z += norm.z * 0.035;
-  if (['slow','mosh','haunt','seize','cageDisc','fragment'].includes(a.type) && norm.y < .55) {
+  if (['slow','mosh','haunt','seize','cageDisc','fragment','vinePod','swarm','storm','mpulse'].includes(a.type) && norm.y < .55) {
     vel.reflect(norm).multiplyScalar(.65);
     Object.assign(a,{vx:vel.x,vy:vel.y,vz:vel.z});
     return false;
@@ -214,6 +215,10 @@ export const projectileColor = {
 };
 export function accessHint(name, charge, bounces, marks) {
   if (name === '우주 장벽') return '좌클릭 별 배치 · C/Q/E 별 활성화 · 우클릭 장벽 선택 · 두 지점 지정';
+  if(name==='포탑')return '좌클릭 설치 · E 방향 반전 · 설치 후 E를 길게 눌러 회수';
+  if(name==='알람봇')return '좌클릭 설치 · 설치 후 Q를 길게 눌러 회수';
+  if(name==='면도날 덩굴' || name==='나노스웜')return '좌클릭 투척 · 설치물을 조준하고 F로 작동';
+  if(name==='아크 장미')return '좌클릭 벽에 설치 · 우클릭 벽 너머 설치 · E 섬광 · F 회수';
   if (name === 'M-파동') return '우클릭 치유·뇌진탕 전환 · 좌클릭 투척';
   if (name === '지원봇') return '좌클릭 추격 · 설치 지점 또는 스파이크 조준 후 우클릭';
   if (name === '기만') return '좌클릭 분신 전개 · 우클릭 표식 설치 · F 활성화';

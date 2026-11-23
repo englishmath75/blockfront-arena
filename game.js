@@ -217,6 +217,7 @@ let closeCollectionMotion;
 import {customOptions,customControls,fly} from './custom-game.js';
 import {dimensionalEffect} from './dimensional-effects.js';
 import {blastImpact} from './blast-pack.js';
+import {tickNest,tickHunterBeam,owlPing} from './deployed-fields.js';
 import {stepHeight} from './walk-surface.js';
 import {peerMotion} from './peer-motion.js';
 const peers=peerMotion();
@@ -455,7 +456,7 @@ function respawn(p, slot = p.i) {
     healingPool: 100,
     regrowing: false,
     duel: null,
-    trappedBy: 0, cameraDart:null, dartRemoval:0,
+    trappedBy: 0, cameraDart:null, dartRemoval:0, owlDart:null, owlHitUntil:0, vineUntil:0, vineHitAt:-1, deviceReturns:{}, roseFlash:0,harmonyUntil:0,
     downedKayo: 0,
     overloadedUntil: 0,
     swingAt: 0,
@@ -856,7 +857,7 @@ function walk(dt, p = match.player, keys = localKeys, prediction=false) {
     dz,
     (p.sprinting ? 9.11 : SPEED[p.mode]) *
       (p.ads ? (weaponFor(p).ads?.runSpeedMultiplier ?? 0.75) : weaponFor(p).move) *
-      (p.hasteUntil>now?1.1:1) * (p.netUntil>now?.7:1) * Math.min(p.detainedUntil > now ? 0.18 : p.tag > now ? 0.57 : 1,
+      (p.hasteUntil>now?1.1:1) * (p.netUntil>now?.7:1) * (p.vineUntil>now?.85:1) * Math.min(p.detainedUntil > now ? 0.18 : p.tag > now ? 0.57 : 1,
         Math.max(p.iceUntil,p.slowUntil,p.hinderedUntil)>now ? .5 : 1),
     dt,
   );
@@ -946,7 +947,7 @@ function eliminate(p, attacker, attack) {
     }
     if (attacker.link && attacker.stimUntil > now) {
       const ally = match.players.find((o) => o.id === attacker.link && !o.down);
-      if (ally) attacker.stimUntil = ally.stimUntil = now + 8;
+      if(ally && ally!==attacker && ally.link===attacker.id)attacker.harmonyUntil=ally.harmonyUntil=attacker.hasteUntil=ally.hasteUntil=attacker.stimUntil=ally.stimUntil=now+timing['화음']['buff duration'];
     }
     if (attacker.empress) {
       attacker.healLeft = 100;
@@ -1196,7 +1197,7 @@ function shoot(p, alt = false, follow = false) {
   p.nextShot =
     now +
     (pattern?.interval ?? (p.ads && stats.ads ? 1 / stats.ads.fireRate : stats.interval)) *
-      (p.stimUntil > now ? 0.85 : 1)*(p.hinderedUntil>now?2:1);
+      (p.harmonyUntil>now?1/1.1:p.stimUntil>now?.85:1)*(p.hinderedUntil>now?2:1);
   if (adsBurst && p.burstRemaining > 0) p.nextShot = now + 0.065;
   const origin = vec(p.x, p.y + p.height, p.z);
   const shotStats =
@@ -1313,13 +1314,13 @@ function reload(p) {
   p.burstRemaining = 0;
   p.inspectUntil = 0;
   if (p.local) stopAnimationAudio();
-  p.reloadDuration=stats.reload*(p.hinderedUntil>now?2:1);
+  p.reloadDuration=stats.reload*(p.hinderedUntil>now?2:1)/(p.harmonyUntil>now?1.1:1);
   p.reloading=now+p.reloadDuration;
   sound('reload', p.local ? undefined : p);
 }
 function updateWeapon(p, dt) {
   if(p.spreadRecovery && now>=p.spreadRecovery){p.bloom=0;p.spreadRecovery=0}
-  else if(!p.spreadRecovery)p.bloom = Math.max(0, p.bloom - dt * (p.hinderedUntil>now?.016:.032));
+  else if(!p.spreadRecovery)p.bloom = Math.max(0, p.bloom - dt * (p.hinderedUntil>now?.016:.032)*(p.harmonyUntil>now?1.1:1));
   if (!p.reloading || now < p.reloading) return;
   const weapon = heldWeapon(p);
   const need = Math.min(weapon.reserve, weaponFor(p).size - weapon.mag);
@@ -1348,7 +1349,7 @@ function equip(slot, p = match.player) {
   }
   p.burstRemaining = 0;
   p.reloading = 0;
-  p.drawDuration=weaponFor(p).equip*(p.hinderedUntil>now?2:1);
+  p.drawDuration=weaponFor(p).equip*(p.hinderedUntil>now?2:1)/(p.harmonyUntil>now?1.1:1);
   p.nextShot = now + p.drawDuration;
   p.bloom = 0;
 }
@@ -1489,7 +1490,7 @@ function fieldContext() {
         owner,
         d.y - radius,
       );
-      if (skillAudio[d.name]?.impact) Object.assign(pulse, { name: d.name, cueAt: now });
+      if (skillAudio[d.name]?.impact) Object.assign(pulse, { name: d.name, ...(['mpulse','storm'].includes(d.kind)?{}:{cueAt:now}) });
       if(d.kind==='wingman')Object.assign(pulse,{angle:d.angle,kind:'wingmanBlast'});
     },
     airHeight(d,target){
@@ -1527,11 +1528,24 @@ function fieldContext() {
     },
   };
 }
+const preplace=new Set(['나노스웜','알람봇','포탑','면도날 덩굴','가지치기','아크 장미']);
+const placingAllowed=name=>active() || match.phase==='buy' && preplace.has(name);
+let heldRecall=null;
+function recoverDevice(p,d){
+  const slot=AGENTS[p.agent].gear.indexOf(d.name);
+  if(slot<0 || d.end<=now || p.down)return;
+  const fast=match.phase==='buy';
+  if(d.kind==='rose' && range(p,d)>timing[d.name]['max recall distance'])return;
+  if(!fast && !['turret','alarmbot','rose'].includes(d.kind))return;
+  d.end=now;
+  (p.deviceReturns??={})[slot]=now+(fast?0:20);
+}
 function owned(p, name) {
   return match.devices.find((d) => d.owner === p.id && d.kind === deviceKind(name) && d.end > now);
 }
 function deviceAction(p, d, interact=false) {
   if (!d || d.owner !== p.id || d.end <= now) return;
+  if(interact && (d.kind==='rose' || d.kind==='shear' && match.phase==='buy' && range(p,d)<=4)){recoverDevice(p,d);return;}
   if(d.kind==='sonic-sensor'){
     if(interact && !d.triggerAt && range(p,d)<=27){d.end=now;p.charges[1]=Math.min(AGENTS[p.agent].economy[1].max,p.charges[1]+1);}
     return;
@@ -1573,12 +1587,13 @@ function deviceAction(p, d, interact=false) {
     return;
   }
   if (d.kind === 'rose') {
+    if(d.type==='wallFlash' || d.lock>now || p.suppressed>now)return;
     d.type = 'wallFlash';
     d.start = now + 0.5;
     d.next = d.start;
     d.end = d.start + 0.12;
     d.flashDuration = 2;
-    d.radius = 20;
+    d.radius = 20;d.cueAt=d.start;
     return;
   }
   if (['poisonLine', 'poisonOrb'].includes(d.kind)) {
@@ -1619,21 +1634,17 @@ function deviceAction(p, d, interact=false) {
     const cage=addDevice('smoke',d.x,d.z,p.team,7,2*r,2*r,5,'#d6f6fd',p,d.y);
     Object.assign(cage,{kind:'cyberCage',name:'사이버 감옥',radius:r,inside:{},cueAt:now});d.end=now;return;
   }
-  const fire = ['vine', 'swarm'].includes(d.kind);
-  addDevice(
-    fire ? 'fire' : 'smoke',
-    d.x,
-    d.z,
-    p.team,
-    fire ? 4.5 : 7,
-    fire ? 8 : 7,
-    fire ? 8 : 7,
-    fire ? 0.18 : 5,
-    fire ? '#a482ce' : '#9ac9d6',
-    p,
-    d.y,
-  );
-  d.end = now;
+  if(d.kind==='vine' || d.kind==='swarm'){
+    if(p.down || p.suppressed>now || d.lock>now)return;
+    const vine=d.kind==='vine',stat=timing[d.name];
+    if(match.phase==='buy' && range(p,d)<=4){
+      d.end=now;p.charges[0]=Math.min(AGENTS[p.agent].economy[0].max,p.charges[0]+1);return;
+    }
+    const radius=stat.radius,delay=stat.windup??.32;
+    const zone=addDevice('nestField',d.x,d.z,p.team,delay+(stat.duration??6),2*radius,2*radius,.1,vine?'#a877ce':'#ed4fce',p,d.y);
+    Object.assign(zone,{name:d.name,kind:vine?'vineField':'swarmField',radius,start:now+delay,cueAt:now+delay,steps:{}});
+    d.end=now;
+  }
 }
 function aimedDevice(p) {
   return targetedDevice(
@@ -1669,30 +1680,22 @@ function pilotFire(p) {
     p.pilot = null;
     return;
   }
-  const line = new T.Ray(vec(v.x, v.y, v.z), aim(p.yaw, p.pitch)),
-    distance = world.mapHit(line, 42, match.devices);
-  for (const o of match.players) {
-    if (o === p || o.down || !hostile(p, o)) continue;
-    const point = vec(o.x, o.y + o.height * 0.65, o.z),
-      target = point.clone().sub(line.origin).dot(line.direction);
-    if (['스파이캠', '올빼미 드론'].includes(v.kind)) {
-      if (target < 0 || target > distance || line.distanceToPoint(point) > 0.65) continue;
-      o.revealTeam = p.team;
-      if(v.kind==='스파이캠'){
-        o.cameraDart={team:p.team,next:now+2};o.dartRemoval=0;o.revealEnd=now+.7;
-      }else o.revealEnd=now+4;
-    } else if (hasSight(v, o, v.kind === '잠입 드론' ? 12 : 5)) {
-      if (v.kind === '잠입 드론') {
-        o.revealTeam = p.team;
-        o.revealEnd = now + 3;
-        o.suppressed = now + 6;
-      } else {
-        o.tag = now + 4;
-        if (v.kind === '정찰자') hurt(o, 30, p);
-      }
+  const line = new T.Ray(vec(v.x,v.y,v.z),aim(p.yaw,p.pitch));
+  let nearest=world.mapHit(line,42,match.devices),victim;
+  for(const o of match.players){
+    if(o===p || o.down || !hostile(p,o))continue;
+    const depth=world.hitBox(line,o.x,o.y,o.z,.56,o.height+.1,.51);
+    if(depth<nearest){nearest=depth;victim=o;}
+  }
+  if(victim){
+    if(v.kind==='스파이캠'){
+      victim.revealTeam=p.team;victim.cameraDart={team:p.team,next:now+2};victim.dartRemoval=0;victim.revealEnd=now+.7;
+    }else{
+      victim.owlDart={team:p.team,next:now+1.6,left:2};p.owlHitUntil=now+2;
+      Object.assign(addDevice('pulse',victim.x,victim.z,p.team,.18,.2,.2,.2,'#6edfff',p,victim.y+.8),{name:v.kind,cueAt:now});
     }
   }
-  v.next = now + (v.kind==='스파이캠'?timing['스파이캠']['dart cooldown']:4);
+  v.next = now + (v.kind==='스파이캠'?timing['스파이캠']['dart cooldown']:v.kind==='올빼미 드론'?timing[v.kind]['dart cooldown']:4);
   if(v.kind==='스파이캠'){const d=match.devices.find(d=>d.id===v.device);if(d)d.dartReady=v.next;}
   if (!['스파이캠', '올빼미 드론'].includes(v.kind)) p.pilot = null;
 }
@@ -1772,6 +1775,7 @@ function ability(i, p = match.player, params = {}) {
       p.lightDir = [-Math.sin(p.yaw), 0, -Math.cos(p.yaw)];
       return;
     }
+    if(slotName==='만조' && params.stop){const tide=match.devices.find(d=>d.type==='tide' && d.owner===p.id && !d.stopped && d.path.length<77);if(tide)tide.stopped=true;return;}
     if (slotName === '심판') {
       const wall = match.devices.find(
         (d) => d.kind === 'reckoning' && d.owner === p.id && d.travel && d.end > now,
@@ -1785,8 +1789,7 @@ function ability(i, p = match.player, params = {}) {
     if (slotName === '해만') {
       const orb = match.devices.find((d) => d.kind === 'cove' && d.owner === p.id && d.end > now && !d.hp);
       if (orb) {
-        orb.hp = 500;
-        orb.shield = true;
+        if(!orb.shieldAt)orb.shieldAt=Math.max(now,orb.start)+timing[slotName]['shield windup'];
         return;
       }
     }
@@ -1821,7 +1824,7 @@ function ability(i, p = match.player, params = {}) {
   const chained = p.agent === '소바' && i === 3 && p.volley > 0 && p.volleyEnd > now;
   if (p.suppressed > now || world.mechanisms.some((m) => m.id === p.ride && m.type === 'cross')) return;
   if (
-    !active() ||
+    !placingAllowed(slotName) ||
     (p.down && !(p.agent === '클로브' && i === 2)) ||
     dm() ||
     (!p.charges[i] &&
@@ -1842,7 +1845,7 @@ function ability(i, p = match.player, params = {}) {
     stat = timing[name] ?? {};
   const dir = aim(p.yaw, p.pitch),
     line = new T.Ray(vec(p.x, p.y + p.height, p.z), dir);
-  const castReach=stat['max deploy distance']??stat['max cast radius']??(name==='랑데부'?stat['max cast distance']:undefined)??18;
+  const castReach=stat['max targeting distance']??stat['max deploy distance']??stat['max cast radius']??(name==='랑데부'?stat['max cast distance']:undefined)??18;
   const mountInfo={};
   const distance = world.mapHit(line, castReach, match.devices,false,mountInfo),
     point = line.at(Math.max(0.1, distance - 0.55), vec(0, 0, 0));
@@ -1853,6 +1856,17 @@ function ability(i, p = match.player, params = {}) {
   let cost = 1;
   const ground = { x: point.x, y: floorAt(point.x, point.z, point.y + 1.5), z: point.z };
   if(name==='함정')params={...params,wire:anchorPair(world,line,distance,mountInfo,match.devices)};
+  if(name==='아크 장미'){
+    if(!mountInfo.normal || Math.abs(mountInfo.normal[1])>.6 || distance>=castReach || Math.abs(mountInfo.surfaceDistance-distance)>.12)return;
+    const normal=vec(...mountInfo.normal),surface=line.at(distance,vec(0,0,0));
+    if(params.alt){
+      const probe=surface.clone().addScaledVector(normal,-2.05),hit={};
+      const back=world.mapHit(new T.Ray(probe,normal),2,match.devices,false,hit);
+      if(back>=2 || !hit.normal || normal.dot(vec(...hit.normal))>-.25)return;
+      surface.copy(probe).addScaledVector(normal,back);normal.fromArray(hit.normal);
+    }
+    point.copy(surface).addScaledVector(normal,.095);mountInfo.normal=normal.toArray();
+  }
   if(name==='음향 센서'){
     if(!mountInfo.normal || Math.abs(mountInfo.normal[1])>.32 || distance>=castReach || Math.abs(mountInfo.surfaceDistance-distance)>.12)return;
     const hit=line.at(Math.max(0,distance-.05),new T.Vector3()),base=floorAt(hit.x,hit.z,hit.y+.4);
@@ -1919,13 +1933,13 @@ function ability(i, p = match.player, params = {}) {
       travel: true,
       travelSpeed: harbor ? 8 : params.alt ? 2.5 : 5,
       bulletWall: !harbor,
-      kind: harbor ? 'reckoning' : 'contingency',
+      name,kind: harbor ? 'reckoning' : 'contingency',
       start: now + 0.4,
     });
   } else if (name === '만조') {
     const x = p.x - Math.sin(p.yaw),
       z = p.z - Math.cos(p.yaw);
-    const d = addDevice('tide', x, z, p.team, 15, 0.2, 1, 4.5, '#4bcac2', p, p.y);
+    const d = addDevice('tide', x, z, p.team, stat.duration, 0.2, 1, 8, '#4bcac2', p, p.y);
     d.path = [
       [x, p.y, z],
       [x - Math.sin(p.yaw) * 0.1, p.y, z - Math.cos(p.yaw) * 0.1],
@@ -1963,9 +1977,9 @@ function ability(i, p = match.player, params = {}) {
           )
           .sort((a, b) => range(p, a) - range(p, b))[0];
     if (!ally) return;
-    p.stimUntil = ally.stimUntil = now + (stat['buff duration'] ?? 8);
-    p.link = ally.id;
-    ally.link = p.id;
+    p.harmonyUntil=ally.harmonyUntil=p.hasteUntil=ally.hasteUntil=p.stimUntil=ally.stimUntil=now+stat['buff duration'];
+    p.link=ally===p?null:ally.id;if(ally!==p)ally.link=p.id;
+    for(const target of new Set([p,ally]))Object.assign(addDevice('pulse',target.x,target.z,p.team,.65,1,1,1.8,'#ffc158',p,target.y),{name,kind:'harmony',cueAt:now});
   } else if(name==='소멸'){
     const {path,length,victim}=wirePath(world,line,match.devices,enemies,hasSight);
     const transit=length/stat['pulse speed'],arrival=now+transit;
@@ -2160,6 +2174,7 @@ function ability(i, p = match.player, params = {}) {
     }
   } else if (remoteAbilities.includes(name)) {
     p.pilot = { kind: name, x: p.x, y: p.y + p.height, z: p.z, end: now + (name === '올빼미 드론' ? 7 : 6) };
+    if(name==='올빼미 드론')Object.assign(p.pilot,{hp:100,ready:now+.15,next:now+.15});
     if (name === '요동봇' || name === '정찰자') {
       p.pilot.ready = now + (stat['deployment duration'] ?? stat['deploy time'] ?? 0.25);
       p.pilot.hp = name === '요동봇' ? 180 : 80;
@@ -2181,7 +2196,7 @@ function ability(i, p = match.player, params = {}) {
       v.end = now + 6.3;
     }
     p.vx = p.vz = 0;
-  } else if (deviceKind(name) && name!=='사이버 감옥') {
+  } else if (deviceKind(name) && !['사이버 감옥','나노스웜','면도날 덩굴'].includes(name)) {
     const kind = deviceKind(name),
       self = kind === 'beacon',
       pos = kind==='gatecrash' ? line.at(Math.min(1.3,Math.max(.1,distance-.24)),vec(0,0,0)) : self ? p : kind==='camera' ? line.at(Math.max(0,distance-.06),vec(0,0,0)) : point;
@@ -2204,18 +2219,13 @@ function ability(i, p = match.player, params = {}) {
     Object.assign(d, { name,kind,hp:45,on:false,angle:p.yaw });
     if(kind==='camera')d.normal=mountInfo.normal;
     if(kind==='gatecrash')Object.assign(d,{travel:!params.alt,travelSpeed:8,hp:20,end:now+stat['tether duration']});
-    if (kind === 'rose' && params.alt && distance < 18) {
-      const behind = line.at(distance + 0.6, vec(0, 0, 0));
-      Object.assign(d, { x: behind.x, z: behind.z, y: behind.y });
-      d.mesh.position.set(d.x, d.y + d.h * 0.5, d.z);
-    }
-    if (kind === 'rose') d.lock = now + 0.8;
+    if(kind==='rose'){d.normal=mountInfo.normal;d.lock=now+stat['deploy time'];d.hp=20;}
   } else if (distanceSmokes.includes(name)) {
     const m = distanceTarget(world, p, p.yaw, p.pitch, Math.max(2, Math.min(80, params.range ?? 12)));
     if (!m) return;
     const omen = name === '어둠의 장막',
       radius = stat.radius ?? (omen ? 4.1 : 4.6),
-      delay = omen ? Math.hypot(m.x - p.x, m.z - p.z) / 64 + 1 : 0;
+      delay = Math.hypot(m.x-p.x,m.z-p.z)/(stat['orb velocity']??64)+(stat['deploy time']??1);
     const d = addDevice(
       omen ? 'darkCover' : 'smoke',
       m.x,
@@ -2231,7 +2241,7 @@ function ability(i, p = match.player, params = {}) {
     );
     d.start = now + delay;
     d.from = { x: p.x, y: p.y + p.height, z: p.z };
-    if (!omen) d.kind = 'cove';
+    if(!omen)Object.assign(d,{kind:'cove',name,cueAt:d.start});
   } else if (tabletNames.includes(name)) {
     const smoke = ['공중 연막', '계략', '웨이브폼'].includes(name),
       guided = name === '유도 일제 사격';
@@ -2279,15 +2289,16 @@ function ability(i, p = match.player, params = {}) {
             m.x,
             m.z,
             p.team,
-            (stat.duration ?? (name === '계략' ? 13 : 15)) +
+            (stat.duration ?? (name === '계략' ? 13 : name==='웨이브폼'?16.75:15)) +
               (stat['windup time'] ?? stat['deploy time'] ?? 1),
-            8.3,
-            8.3,
-            7.4,
+            name==='웨이브폼'?9.44:8.3,
+            name==='웨이브폼'?9.44:8.3,
+            name==='웨이브폼'?9.44:7.4,
             name === '계략' ? '#b78dc5' : name === '웨이브폼' ? '#9b8bcb' : '#a19081',
             p,
-            m.y,
+            m.y-(name==='웨이브폼'?3.4:0),
           );
+          if(name==='웨이브폼')Object.assign(cloud,{kind:'waveform',name});
           cloud.start = now + (stat['windup time'] ?? stat['deploy time'] ?? 1);
         } else if (guided) createZone('guided', name, m, p, fieldContext());
         else {
@@ -2326,18 +2337,8 @@ function ability(i, p = match.player, params = {}) {
     p.volley--;
     p.volleyNext = now + 0.9;
     cost = chained ? 0 : 1;
-    const from = line.origin,
-      to = line.at(64, new T.Vector3());
-    world.trace(from, to, now, '#87eaff', 0.55);
-    for (const o of enemies) {
-      const b = new T.Vector3(o.x, o.y + o.height * 0.6, o.z),
-        d = b.clone().sub(from).dot(dir);
-      if (d >= 0 && d <= 64 && line.distanceToPoint(b) < 1.8) {
-        hurt(o, 80, p);
-        o.revealTeam = p.team;
-        o.revealEnd = now + 1.5;
-      }
-    }
+    const beam=addDevice('hunterBeam',line.origin.x,line.origin.z,p.team,1.35,.16,.16,.16,'#54afff',p,line.origin.y);
+    Object.assign(beam,{name,start:now+.9,axis:dir.toArray(),length:66,radius:1.8});
   } else if (name === '회복 구슬') {
     const ally = params.alt
       ? p
@@ -2507,9 +2508,9 @@ function ability(i, p = match.player, params = {}) {
     i === 2 &&
     !practice() &&
     !p.signatureAt &&
-    ['세이지', '소바', '브리치', '오멘', '페이드', '케이/오', '스카이'].includes(p.agent)
+    ['세이지', '소바', '브리치', '오멘', '페이드', '케이/오', '스카이','하버','믹스'].includes(p.agent)
   ) {
-    p.signatureInterval = stat.cooldown ?? (p.agent === '세이지' ? 45 : p.agent === '오멘' ? 40 : 50);
+    p.signatureInterval = stat.cooldown ?? (p.agent === '세이지' ? 45 : p.agent === '하버'?30:['오멘','믹스'].includes(p.agent) ? 40 : 50);
     p.signatureAt = now + p.signatureInterval;
   }
   if (i === 3) p.ult = 0;
@@ -2575,6 +2576,16 @@ function tickProjectiles(dt) {
       )
     )
       return false;
+    if(a.type==='swarm' || a.type==='vinePod'){
+      const vine=a.type==='vinePod';
+      const pod=addDevice('deployed',a.x,a.z,p.team,240,.25,.23,.22,vine?'#b29dbd':'#c657bc',p,base);
+      Object.assign(pod,{kind:vine?'vine':'swarm',name:a.name,hp:20,lock:now+.75});
+      return false;
+    }
+    if(a.type==='shock'){
+      const shock=addDevice('shockBurst',a.x,a.z,p.team,.85,10,10,10,'#72caff',p,a.y);
+      Object.assign(shock,{name:a.name,radius:5,start:now+timing[a.name]['windup time']});return false;
+    }
     if(a.type==='cageDisc'){
       const disc=addDevice('deployed',a.x,a.z,p.team,240,.17,.17,.055,'#a8e5ff',p,base);
       Object.assign(disc,{kind:'cage',name:a.name});return false;
@@ -2649,7 +2660,7 @@ function tickProjectiles(dt) {
       if (t === 'haunt') d.hp=1;
     } else if (a.type === 'recon') {
       const d = place('recon', 3.4, 0.24, 0.24, '#64d9ff', a.y);
-      d.hp = 20;
+      d.name=a.name;d.hp = 20;
       d.next = now + 0.667;
       d.pulses = 2;
       d.normal = a.surfaceNormal;
@@ -2725,6 +2736,29 @@ function tickProjectiles(dt) {
   match.arrows.push(...children);
 }
 const worldUp=new T.Vector3(0,1,0),worldForward=new T.Vector3(0,0,1),surfaceDirection=new T.Vector3();
+function updatePlacementGhost(skill,p){
+  const kind={'포탑':'turret','알람봇':'alarmbot','가지치기':'shear'}[skill];
+  if(!kind && !world.placementGhosts)return;
+  const cache=world.placementGhosts??=new Map();
+  for(const [key,ghost] of cache)ghost.visible=key===kind;
+  if(!kind)return;
+  let ghost=cache.get(kind);
+  if(!ghost){
+    ghost=new T.Group();world.scene.add(ghost);cache.set(kind,ghost);
+    const mat=world.projectionMaterial??=new T.MeshBasicMaterial({color:0xaf7aff,transparent:true,opacity:.53,depthWrite:false});
+    if(kind==='shear'){
+      const strip=new T.Mesh(new T.BoxGeometry(7.2,.026,.09),mat);ghost.add(strip);
+    }else{
+      attachProp(ghost,kind,kind==='turret'?.92:.36)?.then(()=>ghost.traverse(part=>{if(part.isMesh)part.material=mat;}));
+      const ring=new T.Mesh(new T.RingGeometry(kind==='turret'?.57:.25,kind==='turret'?.61:.28,48),mat);
+      ring.rotation.x=-Math.PI/2;ring.position.y=kind==='turret'?-.446:-.166;ghost.add(ring);
+    }
+  }
+  const ray=new T.Ray(vec(p.x,p.y+p.height,p.z),aim(p.yaw,p.pitch)),reach=timing[skill]['max deploy distance']??18;
+  const point=ray.at(Math.max(.1,world.mapHit(ray,reach,match.devices)-.55),surfaceDirection);
+  const y=floorAt(point.x,point.z,point.y+1.5);ghost.visible=Number.isFinite(y);
+  if(ghost.visible){ghost.position.set(point.x,y+(kind==='turret'?.46:kind==='alarmbot'?.18:.025),point.z);ghost.rotation.y=kind==='turret'?wallAngle:p.yaw;}
+}
 function drawProjectiles() {
   const visible = (world.projectiles ??= new Map());
   const ids = new Set();
@@ -2746,7 +2780,7 @@ function drawProjectiles() {
         hawk: 'guiding-light',
         recon: 'recon-bolt',
         shock: 'shock-dart',
-        paint: 'paintshell',cageDisc:'cyber-cage',
+        paint: 'paintshell',swarm:'nanoswarm',vinePod:'razorvine',cageDisc:'cyber-cage',
         knife: 'zeropoint',
         flash: 'flashdrive',
         satchel: 'blast-pack',mosh:'mosh-pit',net:'gravnet',barrier:'barrier-mesh',
@@ -2761,7 +2795,7 @@ function drawProjectiles() {
           if (arrow) orientation.rotation.y = Math.PI / 2;
           attachProp(orientation, slug, arrow ? 0.72 : 0.32);
         m.material.visible = false;
-      } else if (['delivery','haunt','seize'].includes(a.type)) {
+      } else if (['delivery','haunt','seize','mpulse','storm'].includes(a.type)) {
         m.scale.setScalar(1);m.material.visible=false;m.add(worldSculpture(a.name,a.type==='delivery'?.21:.32));
       } else if (a.type === 'cloud') {
         m.geometry = new T.SphereGeometry(0.6, 16, 12);
@@ -2868,6 +2902,12 @@ function applyAction(p, a) {
   )
     return;
   switch (a.kind) {
+    case 'recall-tech':{
+      if(p.agent!=='킬조이' || ![1,2].includes(a.value))break;
+      const placed=match.devices.find(d=>d.end>now && d.name===AGENTS[p.agent].gear[a.value] && d.owner===p.id);
+      if(placed)recoverDevice(p,placed);
+      break;
+    }
     case 'interact':
       {
         if(p.netUntil>now)break;
@@ -2991,6 +3031,9 @@ function step(dt) {
   }
   tickMechanisms(world.mechanisms, match.players, dt, now, environmentDeath);
   for (const p of match.players) {
+    for(const slot in p.deviceReturns)if(now>=p.deviceReturns[slot]){
+      p.charges[slot]=Math.min(AGENTS[p.agent].economy[slot].max,p.charges[slot]+1);delete p.deviceReturns[slot];
+    }
     if (!p.down && p.decayLost > 0 && now >= p.decayUntil) {
       const restored = Math.min(p.decayLost, (p.seizeRecoveryUntil>now ? p.seizeRecoveryRate : 50) * dt);
       p.decayLost -= restored;
@@ -3123,6 +3166,7 @@ function step(dt) {
     }
     const input = heldRemotes.get(p.id);
     const pressed = p.local ? keys : new Set(input?.keys ?? []);
+    owlPing(p,now);
     if(p.cameraDart){
       if(now>=p.cameraDart.next){p.revealTeam=p.cameraDart.team;p.revealEnd=now+.7;p.cameraDart.next=now+2;}
       p.dartRemoval=pressed.has('KeyF') && !(p.netUntil>now)?p.dartRemoval+dt:0;
@@ -3233,6 +3277,10 @@ function step(dt) {
   const field = fieldContext();
   const remaining = currentDevices.filter((d) => {
     if (now >= d.end) {
+      if((d.kind==='turret' || d.kind==='rose') && (d.hp<=0 || d.type==='wallFlash')){
+        const owner=match.players.find(o=>o.id===d.owner);
+        if(owner && !practice())(owner.deviceReturns??={})[2]=now+(d.hp<=0?45:20);
+      }
       if (d.kind === 'stabilize') {
         const o = match.players.find((p) => p.id === d.owner);
         if (o?.downedKayo === d.id) {
@@ -3327,8 +3375,21 @@ function step(dt) {
         }
       }
     }
+    if(d.type==='shockBurst'){
+      if(!d.fired && now>=d.start){
+        d.fired=true;d.cueAt=now;
+        for(const o of match.players){
+          const dist=Math.hypot(o.x-d.x,o.y+o.height*.5-d.y,o.z-d.z);
+          if(!o.down && dist<d.radius && hasSight(d,o,d.radius+1))hurt(o,Math.round(75-65*Math.min(1,Math.max(0,dist-1)/(d.radius-1))),caster);
+        }
+      }
+      return true;
+    }
+    if(d.type==='hunterBeam'){tickHunterBeam(d,caster,field);return true;}
+    if(d.type==='nestField'){tickNest(d,caster,dt,field);return true;}
+    if(d.kind==='cove' && !d.shield && d.shieldAt && now>=d.shieldAt){d.hp=680;d.shield=true;d.cueAt=now;}
     if (d.type === 'zoneEmitter') {
-      tickZone(d, caster, field);
+      tickZone(d, caster, field,dt);
       return true;
     }
     if (
@@ -3346,8 +3407,8 @@ function step(dt) {
     if (d.type === 'blaze' || d.type === 'tide') {
       const owner = match.players.find((p) => p.id === d.owner);
       if (!owner) return true;
-      while (d.path.length < (d.type === 'tide' ? 60 : 27) && now >= d.grow) {
-        d.grow += 0.045;
+      while (!d.stopped && d.path.length < (d.type === 'tide' ? 77 : 27) && now >= d.grow) {
+        d.grow += d.type==='tide'?.8/25:.045;
         if (owner.guiding) d.angle = owner.yaw;
         const [lx, ly, lz] = d.path.at(-1),
           x = lx - Math.sin(d.angle) * 0.8,
@@ -3365,7 +3426,7 @@ function step(dt) {
             )
           ) {
             if (d.type === 'tide') {
-              o.tag = now + 0.6;
+              o.slowUntil=now+timing['만조']['slow duration'];
               continue;
             }
             if (o === owner && !d.healed) {
@@ -3383,13 +3444,21 @@ function step(dt) {
       const x = d.x - Math.sin(d.angle) * dt * speed,
         z = d.z - Math.cos(d.angle) * dt * speed;
       const floor=d.kind==='gatecrash'?floorAt(x,z,d.y+.32):d.y;
-      if (!Number.isFinite(floor) || world.structure.blocked(x, z, floor + 0.1, 0.1, 0.22)) d.travel = false;
+      if (!Number.isFinite(floor) || (d.kind!=='reckoning' && world.structure.blocked(x,z,floor+.1,.1,.22))) d.travel = false;
       else {
         d.x = x;
         d.z = z;
         d.y=floor;
         d.mesh.position.set(x, d.y + d.h / 2, z);
       }
+    }
+    if(d.kind==='reckoning' && now>=d.start){
+      const sin=Math.sin(d.angle),cos=Math.cos(d.angle);
+      for(const o of match.players){const x=o.x-d.x,z=o.z-d.z;
+        if(o.down || o.team===d.team || Math.abs(x*cos-z*sin)>d.w*.5 || Math.abs(x*sin+z*cos)>.85 || o.y+o.height<d.y || o.y>d.y+d.h)continue;
+        o.nearsight=now+3;o.slowUntil=now+2;
+      }
+      return true;
     }
     if (d.fortify && now >= d.fortify) {
       d.hp += 200;
@@ -3415,7 +3484,7 @@ function step(dt) {
         if (!hasSight(center, o, r)) continue;
         if (d.type === 'eye' || d.type === 'wallFlash') {
           const direction = vec(d.x - o.x, d.y - o.y - o.height, d.z - o.z).normalize();
-          if (d.type === 'wallFlash') flashPlayer(o,center,d.flashDuration ?? timing['섬광 폭발']['max blind duration']);
+          if (d.type === 'wallFlash'){flashPlayer(o,center,d.flashDuration ?? timing['섬광 폭발']['max blind duration']);if(d.kind==='rose')o.roseFlash=o.blindUntil;}
           else if (aim(o.yaw, o.pitch).dot(direction) > 0.25) o.nearsight = now + 0.25;
         } else if (d.type === 'haunt') {
           o.revealTeam = d.team;
@@ -3606,6 +3675,19 @@ function drawWorld(realTime) {
           attachProp(mesh,d.kind==='theft'?'neural-theft':'zeropoint',d.kind==='theft'?.31:.34);}
         mesh.position.set(d.x,d.y+(d.kind==='theft'?.19:.03),d.z);continue;
       }
+      if(d.kind==='shear'){
+        const mesh=d.mesh;mesh.visible=d.team===match.player.team || range(match.player,d)<3.5;
+        mesh.scale.set(7.1,.04,.08);mesh.position.set(d.x,d.y+.028,d.z);mesh.rotation.y=d.angle;continue;
+      }
+      if(['swarm','vine','rose','alarmbot'].includes(d.kind)){
+        const mesh=d.mesh,rangeToViewer=range(match.player,d);
+        mesh.visible=d.team===match.player.team || !!d.chasing || rangeToViewer<(timing[d.name]?.['detection radius']??7);
+        if(d.type==='deployed' && !mesh.userData.requested){
+          mesh.userData.requested=true;mesh.material.visible=false;mesh.scale.setScalar(1);
+          attachProp(mesh,{swarm:'nanoswarm',vine:'razorvine',rose:'arc-rose'}[d.kind],d.kind==='rose'?.31:.23);
+          if(d.normal)mesh.quaternion.setFromUnitVectors(worldUp,surfaceDirection.fromArray(d.normal));
+        }
+      }
       if(d.kind==='camera'){
         const mesh=d.mesh;
         if(!mesh.userData.requested){
@@ -3618,7 +3700,7 @@ function drawWorld(realTime) {
       if (['companion', 'agentPulse', 'groundWave', 'decoy', 'plane'].includes(d.type)) {
         const mesh = d.mesh;
         mesh.position.set(d.x, d.y + d.h / 2, d.z);
-        mesh.rotation.y = d.angle ?? 0;
+        mesh.rotation.y = d.trackAngle ?? d.angle ?? 0;
         if (d.type === 'groundWave') mesh.visible = now >= d.start;
         if (d.type==='groundWave' && d.name==='초점 교차') {
           const width=Math.max(.02,Math.min(d.w,2*(now-d.start)*d.speed));
@@ -3726,6 +3808,7 @@ function drawWorld(realTime) {
       !['칼날 폭풍', '역작', '헤드헌터', '순풍', '고속 기어', '오버드라이브'].includes(watch.lastCast.name)
         ? watch.lastCast.name
         : '');
+    if(watch===self)watch.pulseMode=healPulse;
     world.first.update(
       watch,
       gun,
@@ -3736,6 +3819,7 @@ function drawWorld(realTime) {
       liveSkill,
       watch===self && chargeStart!==null ? Math.min(1,(performance.now()-chargeStart)/1000) : 0,
     );
+    updatePlacementGhost(watch===self && !watch.down && !piloting?armedName():'',watch);
     if (watch === self && distanceSmokes.includes(armedName())) {
       const target = distanceTarget(world, watch, watch.yaw, watch.pitch, smokeRange);
       if (target) {
@@ -3918,14 +4002,16 @@ function drawHud() {
   if (!match || hud.hidden) return;
   const p = match.player;
   const watch = observer();
+  hud.classList.toggle('owl-camera',watch.pilot?.kind==='올빼미 드론');
   hud.classList.toggle('tejo-camera',watch.pilot?.kind==='잠입 드론' && now>=watch.pilot.ready);
   hud.classList.toggle('thrash-camera',watch.pilot?.kind==='요동봇' && now>=watch.pilot.ready);
   if (p.down && armedSkill !== null && !(p.agent === '클로브' && armedSkill === 2)) disarm();
   minimap(watch);
   const tablet = get('tablet-map');
   tablet.hidden = !tabletNames.includes(armedName());
+  tablet.classList.toggle('waveform-map',armedName()==='웨이브폼');
   const tejoMap=isTejoMap(armedName());tablet.classList.toggle('tejo-projection',tejoMap);
-  if(tejoMap && !tablet.hidden)drawTejoMap(tablet,mapBase,HALF,p,armedName(),marks,cursor);
+  if((tejoMap || armedName()==='웨이브폼') && !tablet.hidden)drawTejoMap(tablet,mapBase,HALF,p,armedName(),marks,cursor);
   else if (!tablet.hidden) {
     const ctx = tablet.getContext('2d'),
       size = tablet.width;
@@ -4003,6 +4089,7 @@ function drawHud() {
   const meter = Math.hypot(p.vx, p.vz);
   const posture =
     p.mode === 'crouch' ? '앉기 · 무음' : p.mode === 'walk' ? '걷기 · 무음' : meter < 0.2 ? '정지' : '달리기';
+  document.body.classList.toggle('rose-flashed',p.roseFlash>now);
   document.body.classList.toggle('blind', p.blindUntil > now);
   if (p.blindUntil > now) document.body.style.setProperty('--flash-opacity', Math.min(1,(p.blindUntil-now)/.38));
   document.body.classList.toggle('plasma-blind', p.plasmaUntil > now);
@@ -4098,7 +4185,7 @@ function drawHud() {
   const mechanismHint = p.pilot
     ? '좌클릭 장치 사용 · 스킬 키로 복귀'
     : aimed
-      ? aimed.kind==='sonic-sensor'?'[F] 음향 센서 회수':'[F] 설치한 스킬 작동'
+      ? (['sonic-sensor','rose'].includes(aimed.kind) || match.phase==='buy' && ['swarm','vine','shear'].includes(aimed.kind))?'[F] '+aimed.name+' 회수':'[F] 설치한 스킬 작동'
       : mechanism
         ? mechanism.name +
           ' · ' +
@@ -4128,7 +4215,9 @@ function drawHud() {
       : now < match.hudUntil && !['buy', 'result'].includes(match.phase)
         ? match.hudText
         : mechanismHint || prompt;
-  updateHudPanel('message', (p.scannedUntil>now?'<strong class="field-alert scanned">위치 발각</strong>':'') +
+  updateHudPanel('message', (watch.pilot?.kind==='올빼미 드론'?'<strong class="owl-telemetry">'+(watch.owlHitUntil>now?'표적 명중':watch.pilot.next>now?'다트 충전 중':'다트 준비')+' · '+Math.max(0,Math.ceil(watch.pilot.end-now))+'초</strong>':'')+
+    (p.jammedUntil>now?'<strong class="field-alert scanned">주 무기 사용 불가</strong>':'')+
+    (p.scannedUntil>now?'<strong class="field-alert scanned">위치 발각</strong>':'') +
     (p.deafUntil>now?'<strong class="field-alert scanned">청각 차단</strong>':'') +
     (p.hinderedUntil>now?'<strong class="field-alert chilled">방해</strong>':
       Math.max(p.iceUntil,p.slowUntil)>now?'<strong class="field-alert chilled">둔화</strong>':'') +
@@ -4546,7 +4635,7 @@ stateKeys.push(
   'vulnerable',
   'netUntil',
   'trappedBy','downedKayo','cameraDart','dartRemoval','overloadedUntil','regrowing','healingPool','rocketUntil',
-  'trailEnd','trailOrigin','trailTeam','netRemoval',
+  'trailEnd','trailOrigin','trailTeam','netRemoval','harmonyUntil','roseFlash','owlDart','owlHitUntil','vineUntil',
 );
 function snapshot() {
   const skin = currentSkin(match.player);
@@ -5028,6 +5117,7 @@ window.addEventListener('keydown', (event) => {
   if (code === 'Digit1') command('equip', 'primary');
   if (code === 'Digit2') command('equip', 'secondary');
   if (code === 'Digit3') command('equip', 'melee');
+  if(code==='KeyE' && armedName()==='포탑'){wallAngle+=Math.PI;return;}
   if (code === 'KeyY' && armedSkill === null && !match.player.reloading) {
     command('inspect');
   }
@@ -5040,6 +5130,9 @@ window.addEventListener('keydown', (event) => {
     const i = SLOTS.indexOf(code.slice(3)),
       p = match.player,
       name = AGENTS[p.agent].gear[i];
+    if(p.agent==='킬조이' && [1,2].includes(i) && match.devices.some(d=>d.end>now && d.owner===p.id && d.name===name)){
+      heldRecall={code,i,start:performance.now()};return;
+    }
     if (
       (['귀체', '포박', '섬광등', '진형 붕괴', '일체 정지'].includes(name) &&
         match.arrows.some((a) => a.name === name && a.owner === p.id)) ||
@@ -5096,7 +5189,7 @@ window.addEventListener('keydown', (event) => {
       return;
     }
     if (
-      !active() ||
+      !placingAllowed(name) ||
       dm() ||
       (!p.charges[i] &&
         !(name==='대미 장식' && p.rocketUntil>now) &&
@@ -5128,6 +5221,10 @@ window.addEventListener('keydown', (event) => {
   }
 });
 window.addEventListener('keyup', (event) => {
+  if(heldRecall?.code===event.code){
+    if(screen==='game' && performance.now()-heldRecall.start>=380)command('recall-tech',heldRecall.i);
+    heldRecall=null;
+  }
   keys.delete(event.code);
   if (event.code === 'KeyC' && match?.player.agent === '제트') match.player.guiding = false;
 });
@@ -5140,6 +5237,7 @@ window.addEventListener('blur', () => {
 canvas.addEventListener('contextmenu', (event) => event.preventDefault());
 canvas.addEventListener('mousedown', (event) => {
   if (screen !== 'game') return;
+  if(event.button===2 && armedSkill===null && match.player.agent==='하버' && match.devices.some(d=>d.type==='tide' && d.owner===match.player.id && !d.stopped && d.path.length<77)){command('ability',{i:1,stop:true});return;}
   if (event.button === 2 && match.player.sprinting && armedSkill === null) {
     command('slide');
     return;
@@ -5156,6 +5254,7 @@ canvas.addEventListener('mousedown', (event) => {
       rangeAdjust = alt ? -1 : 1;
       return;
     }
+    if(name==='포탑' && alt){turnWall=true;return;}
     if (name === 'M-파동' && alt) {
       healPulse = !healPulse;
       announce(healPulse ? '치유 모드' : '뇌진탕 모드');
@@ -5269,7 +5368,7 @@ window.addEventListener('mousemove', (event) => {
   if (screen !== 'game') return;
   if (tabletNames.includes(armedName())) {
     const rect = get('tablet-map').getBoundingClientRect();
-    const centred=isTejoMap(armedName()),extent=centred?tabletRange(armedName()):HALF;
+    const centred=isTejoMap(armedName()) || armedName()==='웨이브폼',extent=centred?tabletRange(armedName()):HALF;
     if (unlocked) {
       cursor.x=(centred?match.player.x:0)+((event.clientX-rect.left)/rect.width-.5)*2*extent;
       cursor.z=(centred?match.player.z:0)+((event.clientY-rect.top)/rect.height-.5)*2*extent;

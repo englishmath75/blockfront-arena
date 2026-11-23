@@ -78,7 +78,15 @@ else if(kind>4.5){
   }
   a*=.78+.18*edge;
 }
-else if(kind>3.5){float wave=noise(vec3(v.x*span*.35,v.y*2.-t*1.5,t*.4));float rip=sin(v.y*24.+wave*7.-t*3.);c=mix(vec3(.03,.45,.48),vec3(.61,1.,.91),.48+.28*rip+.20*wave);a*=1.-smoothstep(.89+.08*wave,1.,v.y);}
+else if(kind>3.5){
+  float x=v.x*span*.36,grain=noise(vec3(x,v.y*2.-t*.8,t*.34));
+  float curl=sin(x*2.4+v.y*6.+grain*5.-t*2.);
+  float seam=pow(.5+.5*cos(v.y*17.+curl*3.2-x*1.6+t*2.),18.);
+  float crest=.90+.085*grain,foam=smoothstep(crest-.12,crest-.04,v.y);
+  c=mix(vec3(.012,.08,.14),vec3(.04,.43,.43),grain+.15*curl);
+  c=mix(c,vec3(.84,.67,.35),seam*.68);c=mix(c,vec3(.83,1.,.98),foam);
+  a*=1.-smoothstep(crest-.014,crest,v.y);
+}
 else if(kind>2.5){float wave=noise(vec3(v.x*span*.75,v.y*3.-t*3.,t*.55));float top=.64+.36*wave;a*=1.-smoothstep(top-.12,top,v.y);c=mix(vec3(.98,.14,.025),vec3(1.,.85,.22),clamp(1.-v.y+.23*sin(v.x*18.-t*4.)+.35*wave,0.,1.));}
 else{float band=pow(abs(sin(v.y*36.+t*4.)),8.);a*=.14+band*.44;c*=1.6;}
 gl_FragColor=vec4(c,a);
@@ -298,7 +306,7 @@ export function visionDistance(ray, d, now, limit) {
     const s = Math.sqrt(det),
       t1 = (-b - s) / a,
       t2 = (-b + s) / a;
-    if (d.type !== 'darkCover' && t1 < 0 && t2 >= 0) return 0;
+    if (d.type !== 'darkCover' && !['cove','waveform'].includes(d.kind) && t1 < 0 && t2 >= 0) return 0;
     const hit = t1 >= 0 ? t1 : t2;
     return hit >= 0 ? Math.min(limit, hit) : limit;
   }

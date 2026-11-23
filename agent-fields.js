@@ -18,7 +18,7 @@ const helpers = {
   추적귀: ['prowler', 60, 2.5, 5.4, '#825882'],
   추적자: ['seeker', 120, 12, 5.2, '#8dbd60'],
   포탑: ['turret', 100, 240, 0, '#e8bd50'],
-  알람봇: ['alarmbot', 50, 240, 0, '#d6a6d5'],
+  알람봇: ['alarmbot', 20, 240, 0, '#d6a6d5'],
   트레이드마크: ['trademark', 20, 240, 0, '#dbb460'],
   '음향 센서': ['sonic-sensor', 20, 240, 0, '#84cbea'],
   목조르기: ['chokehold', 70, 240, 0, '#8fd2b1'],
@@ -117,7 +117,7 @@ export function castField(name, p, ground, params, ctx) {
         name,
         hp,
         start: time + deploy,
-        angle: p.yaw,
+        angle:kind==='turret'?(params.angle??p.yaw):p.yaw,
         speed,
         targetId: target?.id,
         objective,
@@ -235,6 +235,21 @@ export function tickField(d, owner, dt, ctx) {
   }
   if (time < d.start || (owner.down && d.kind === 'turret')) return true;
   const close = players.filter((o) => !o.down && hostile(owner, o)).sort((a, b) => dist(a, d) - dist(b, d));
+  if(d.kind==='turret' || d.kind==='alarmbot'){
+    if(owner.down || owner.suppressed>time || dist(owner,d)>40){d.wake=time+2;d.tracking=null;d.speed=0;return true;}
+    if(d.wake>time)return true;
+  }
+  if(d.kind==='shear'){
+    const s=Math.sin(d.angle),c=Math.cos(d.angle);
+    if(!d.triggerAt && close.some(o=>Math.abs((o.x-d.x)*s+(o.z-d.z)*c)<.65 &&
+        Math.abs((o.x-d.x)*c-(o.z-d.z)*s)<=3.5 && Math.abs(o.y-d.y)<2))d.triggerAt=time+.45;
+    if(d.triggerAt && time>=d.triggerAt){
+      for(let n=-4;n<=4;n++)Object.assign(add('wall',d.x+c*n*.8,d.z-s*n*.8,7.9,.83,.83,3.5,'#8c849e',owner,d.y),{kind:'shearCollider'});
+      Object.assign(add('pulse',d.x,d.z,7.9,7.2,.5,3.5,'#aca1bd',owner,d.y),{kind:'shearWall',angle:d.angle,name:d.name,cueAt:time});
+      d.end=time;
+    }
+    return true;
+  }
   if(d.kind==='sonic-sensor'){
     if(owner.down || owner.suppressed>time){delete d.triggerAt;return true;}
     const noisy=p=>p.shot>0 && p.shot>time-.35 || p.reloading>time || p.channel || Math.abs(p.vy)>.8 ||
@@ -276,10 +291,17 @@ export function tickField(d, owner, dt, ctx) {
         return false;
       if(['boom-bot','wingman'].includes(d.kind) && dist(o,d)>stat['max detection cone distance'] || d.kind==='prowler' && dist(o,d)>stat['detection distance'])return false;
       const forward = (o.x - d.x) * -Math.sin(d.angle) + (o.z - d.z) * -Math.cos(d.angle);
+      if(d.kind==='turret')return forward>=dist(o,d)*Math.cos(50*Math.PI/180);
+      if(d.kind==='alarmbot')return dist(o,d)<(d.chasing?14:7);
       if(d.kind==='boom-bot')return forward>=dist(o,d)*Math.cos(Math.PI/4);
       return ['turret', 'wingman', 'prowler'].includes(d.kind) ? forward>0 : true;
     });
   const hit = target && dist(target, d);
+  if(d.kind==='turret' && d.tracking!==target?.id){
+    d.tracking=target?.id;d.next=time+stat['windup time'];d.salvo=0;
+  }
+  if(d.kind==='turret' && target)d.trackAngle=Math.atan2(d.x-target.x,d.z-target.z);
+  if(d.kind==='alarmbot' && !target){d.chasing=false;d.speed=0;delete d.impactAt;}
   if (d.kind === 'lockdown') {
     if (time >= d.born + 13) {
       ring(d, owner, 32.5);
@@ -334,7 +356,7 @@ export function tickField(d, owner, dt, ctx) {
       const bearing=Math.atan2(d.x-target.x,d.z-target.z);
       d.angle=d.kind==='wingman'?d.angle+Math.atan2(Math.sin(bearing-d.angle),Math.cos(bearing-d.angle))*Math.min(1,dt*13):bearing;
       if(d.kind==='wingman' || d.kind==='boom-bot')d.chasing=true;
-      if (d.kind === 'alarmbot') d.speed = stat['movement speed'];
+      if (d.kind === 'alarmbot'){d.speed=stat['movement speed'];d.chasing=true;}
       if (d.kind === 'prowler') d.speed = stat['travel speeds'];
     } else if (d.kind === 'prowler' && owner.guiding) d.angle = owner.yaw;
     const reach = d.kind === 'wingman' ? 6 : d.kind === 'prowler' ? 1.6 : 1.5;
@@ -367,7 +389,7 @@ export function tickField(d, owner, dt, ctx) {
     if (d.kind === 'turret' && dist(d, owner) <= 40 && hit < 40 && time >= (d.next ?? 0)) {
       d.salvo = (d.salvo ?? 0) + 1;
       d.next = time + (d.salvo % 3 === 0 ? 0.75 : 0.18);
-      ctx.trace(d, target, '#ffcb62');
+      d.cueAt=time;ctx.trace(d, target, '#ffcb62');
       hurt(target, hit < 20 ? 8 : hit < 35 ? 6 : 4, owner);
     }
     const trigger = d.kind === 'trademark' ? hit < 10 : hit < 2.2;
@@ -377,7 +399,6 @@ export function tickField(d, owner, dt, ctx) {
         ring(d, owner, 5);
         if (d.kind === 'trademark')
           Object.assign(add('slow',d.x,d.z,stat['slow duration'],2*stat['slow radius'],2*stat['slow radius'],.2,'#d6a65c',owner,d.y),{name:d.name,radius:stat['slow radius']});
-        else if (d.kind === 'shear') add('wall', d.x, d.z, 7, 5, 0.45, 3.5, '#aa91c0', owner, d.y);
         else {
           target.tether = { x: d.x, z: d.z, until: time + 3 };
           target.revealTeam = owner.team;

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {tickNest,tickHunterBeam,owlPing,domeBoundary} from './deployed-fields.js';
 import test from 'node:test';
 import fs from 'node:fs';
 import skins from './skins.json' with { type: 'json' };
@@ -129,6 +130,40 @@ test('every ability timing record has a source demonstration', () => {
   }
 });
 
+test('Owl Drone tags pulse twice with a gap and Hunter’s Fury hits only its forward cylinder',()=>{
+  const {caster,target,ctx}=fieldScenario();target.height=1.6;
+  target.owlDart={team:caster.team,next:1.6,left:2};
+  owlPing(target,1.59);assert.equal(target.revealEnd,undefined);
+  owlPing(target,1.6);assert.equal(target.revealEnd,2.25);
+  owlPing(target,2.5);assert.equal(target.revealEnd,2.25);
+  owlPing(target,2.81);assert.equal(target.owlDart,null);
+  const beam={name:'사냥꾼의 분노',start:4,x:0,y:1,z:0,axis:[0,0,-1],length:66,radius:1.8};
+  const behind={...target,id:3,z:2},side={...target,id:4,x:2.1};ctx.players.push(behind,side);
+  ctx.time=3.99;tickHunterBeam(beam,caster,ctx);assert.equal(target.hp,100);
+  ctx.time=4;tickHunterBeam(beam,caster,ctx);tickHunterBeam(beam,caster,ctx);
+  assert.deepEqual([target.hp,behind.hp,side.hp],[20,100,100]);
+});
+test('Razorvine damages movement only, while an active Nanoswarm damages stationary players',()=>{
+  const {caster,target,ctx}=fieldScenario();ctx.players=[target];
+  const field={kind:'vineField',start:0,x:0,y:0,z:-5,radius:6.25,steps:{}};
+  for(let i=0;i<90;i++){ctx.time+=1/60;tickNest(field,caster,1/60,ctx);}
+  assert.equal(target.hp,100);assert(target.vineUntil>ctx.time);
+  for(let i=0;i<50;i++){ctx.time+=1/60;target.x+=.05;tickNest(field,caster,1/60,ctx);}
+  assert(target.hp<=90);const remaining=target.hp;field.kind='swarmField';field.steps={};
+  tickNest(field,caster,1/60,ctx);tickNest(field,caster,1/60,ctx);assert.equal(target.hp,remaining-12);
+});
+test('Cove intercepts the spherical surface, including shots fired from inside',()=>{
+  const d={x:0,y:-4,z:0,w:8,h:8},line=(x,z)=>new Ray(new Vector3(x,0,z),new Vector3(0,0,-1));
+  assert.equal(domeBoundary(line(0,8),d,20),4);assert.equal(domeBoundary(line(0,0),d,2),2);
+  assert.equal(domeBoundary(line(0,0),d,8),4);assert.equal(domeBoundary(line(4.1,8),d,20),20);
+  assert(domeBoundary(line(3.9,8),d,20)>7);
+});
+test('M-pulse distinguishes sustained healing from its three timed bursts',()=>{
+  const {caster,target,ctx,devices}=fieldScenario();ctx.visible=()=>true;Object.assign(target,{hp:1,z:0});
+  createZone('mpulse','M-파동',{...caster,heal:true},caster,ctx);const d=devices[0];
+  for(let i=0;i<=300;i++){ctx.time=i/60;tickZone(d,caster,ctx,1/60);}
+  assert.equal(d.pulses,0);assert(target.hp>87 && target.hp<89);
+});
 function fieldScenario() {
   const caster = { id: 1, team: 'a', x: 0, y: 0, z: 0, yaw: 0 };
   const target = { id: 2, team: 'b', x: 0, y: 0, z: -5, hp: 100 };

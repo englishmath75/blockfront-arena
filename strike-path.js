@@ -10,7 +10,7 @@ export function insideStrip(d,p){
   return Math.abs(x*c-z*s)<=d.w/2 && Math.abs(x*s+z*c)<d.d/2 && Math.abs(p.y-d.y)<d.h;
 }
 export function tabletRange(name){
-  return name==='유도 일제 사격'?45:name==='아마겟돈'?52.5:name==='그림자 습격'?Infinity:55;
+  return name==='웨이브폼'?55.5:name==='유도 일제 사격'?45:name==='아마겟돈'?52.5:name==='그림자 습격'?Infinity:55;
 }
 export function sensorArea(d,p){
   const x=p.x-d.x,z=p.z-d.z,n=d.normal;

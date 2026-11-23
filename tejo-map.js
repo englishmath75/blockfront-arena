@@ -11,7 +11,9 @@ export function drawTejoMap(canvas,map,half,p,name,marks,cursor){
   ctx.fillStyle='#201523';ctx.fillRect(0,0,s,s);
   ctx.globalAlpha=.85;ctx.drawImage(map,X(-half),Y(-half),half*2*scale,half*2*scale);ctx.globalAlpha=1;
   const tint=ctx.createRadialGradient(s/2,s/2,0,s/2,s/2,s/2);
+  if(name==='웨이브폼'){tint.addColorStop(0,'#2c184a44');tint.addColorStop(.88,'#51356a88');tint.addColorStop(1,'#eca744bb');}else{
   tint.addColorStop(0,'rgba(76,33,76,.5)');tint.addColorStop(.86,'rgba(142,74,45,.38)');tint.addColorStop(1,'rgba(255,181,75,.75)');
+  }
   ctx.fillStyle=tint;ctx.fillRect(0,0,s,s);ctx.lineWidth=Math.max(1,s/220);
   for(let i=0;i<48;i++){
     const a=i*Math.PI/24,r=s*.488,inner=r-(i%4===0?s*.029:s*.011);
@@ -23,7 +25,7 @@ export function drawTejoMap(canvas,map,half,p,name,marks,cursor){
     ctx.save();ctx.translate(X(a.x),Y(a.z));ctx.rotate(angle);ctx.fillStyle='#ffb43b57';ctx.strokeStyle='#fff0a4';
     ctx.fillRect(0,-6*scale,32*scale,12*scale);ctx.strokeRect(0,-6*scale,32*scale,12*scale);ctx.restore();
   }
-  const r=(name==='아마겟돈'?6:4.5)*scale;
+  const r=(name==='아마겟돈'?6:name==='웨이브폼'?4.72:4.5)*scale;
   for(const m of marks){circle(X(m.x),Y(m.z),r,'#ffb54490',true);circle(X(m.x),Y(m.z),r,'#fff0aa');}
   circle(X(cursor.x),Y(cursor.z),r,'#fff1ba');circle(X(cursor.x),Y(cursor.z),1.5,'#fff9de',true);
   ctx.translate(s/2,s/2);ctx.rotate(-p.yaw);ctx.fillStyle='#a4ffe4';ctx.beginPath();ctx.moveTo(0,-5);ctx.lineTo(4,4);ctx.lineTo(-4,4);ctx.fill();

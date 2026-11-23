@@ -3,7 +3,7 @@ import * as T from 'three';
 
 const zones = {
   fragment: { radius: 4, hue: '#ad84ff', delay: 0.5, count: 4, gap: 1 },
-  mpulse: { radius: 5.5, hue: '#b091ff', delay: 1, count: 3, gap: 1 },
+  mpulse: { radius: 5.5, hue: '#b091ff', delay: 1, count: 3, gap: 2 },
   storm: { radius: 6, hue: '#55dded', delay: 0.6 },
   saturate: { radius: 6, hue: '#ffe793', delay: 0.6 },
   collapse: { radius: 6, hue: '#69bee0', delay: 0.15 },
@@ -27,7 +27,7 @@ export function createZone(kind, name, source, owner, ctx) {
     'zoneEmitter',
     source.x,
     source.z,
-    travel + delay + count * gap + 0.3,
+    travel + delay + (kind==='mpulse'?count-1:count) * gap + 0.3,
     destructible ? 0.24 : 0.5,
     destructible ? 0.24 : 0.5,
     destructible ? 0.38 : 0.2,
@@ -49,11 +49,15 @@ export function createZone(kind, name, source, owner, ctx) {
   });
   return true;
 }
-export function tickZone(d, owner, ctx) {
+export function tickZone(d, owner, ctx,dt=0) {
   const t = ctx.time;
+  if(d.kind==='mpulse' && d.heal && owner && dt>0 && t>=d.start && d.pulses){
+    for(const o of ctx.players)if(!o.down && Math.hypot(o.x-d.x,o.z-d.z)<=d.radius && Math.abs(o.y-d.y)<d.radius && ctx.visible({...d,y:d.y+.22},o,d.radius+1.2))o.hp=Math.min(100,o.hp+6.67*dt);
+  }
   if (!owner || !d.pulses || t < d.next) return;
   d.pulses--;
   d.next += d.gap;
+  if(d.kind==='mpulse' || d.kind==='storm')d.cueAt=t;
   if (d.kind !== 'well' || d.pulses % 5 === 0) ctx.ring(d, owner, d.radius);
   for (const o of ctx.players) {
     if (o.down) continue;
@@ -78,10 +82,9 @@ export function tickZone(d, owner, ctx) {
       }else if(enemy)ctx.hurt(o,Math.round(60-35*r/d.radius),owner);
     } else if (d.kind === 'mpulse') {
       if (d.heal) o.hp = Math.min(100, o.hp + 20);
-      else o.tag = t + 2.5;
+      else o.tag=t+Math.max(.5,2*(1-.65*r/d.radius));
     } else if (d.kind === 'storm') {
-      o.tag = t + 2;
-      o.nearsight = t + 2;
+      if(enemy){o.slowUntil=t+2;o.nearsight=t+2;}
     } else if (d.kind === 'nova') o.tag=t+2.5;
     else if (d.kind==='saturate') o.hinderedUntil=t+timing[d.name]['hinder duration'];
     else if (d.kind === 'suspension') {

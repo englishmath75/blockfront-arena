@@ -361,7 +361,7 @@ export function previewWeapon(canvas,gun,skin){
     for(let i=0;i<8 && ticket===viewer.ticket;i++){await new Promise(r=>setTimeout(r,240));draw()}
   })().catch(()=>{if(viewer.ticket===ticket)canvas.textContent='모델을 불러올 수 없습니다.'});
 }
-const heldSpans={'귀체':.20,'포박':.17,'추적귀':.24,'황혼':.20,'잠입 드론':.27,'특별 배송':.19,
+const heldSpans={'면도날 덩굴':.15,'아크 장미':.145,'포탑':.92,'알람봇':.35,'귀체':.20,'포박':.17,'추적귀':.24,'황혼':.20,'잠입 드론':.27,'특별 배송':.19,
   '소멸':.41,'장벽망':.22,'음향 센서':.19,'중력그물':.17,'지원봇':.26,'기절봇':.24,'요동봇':.26,'폭파봇 지옥':.19,
   '폭발 봇':.37,'폭발 팩':.19,'페인트탄':.17,'대미 장식':.92,'트레이드마크':.13,'랑데부':.12,'헤드헌터':.28,'역작':1.18,
   '파편/탄':.14,'플래시/드라이브':.16,'제로/포인트':.32,'무력화/명령':.18,'재생':.16,'정찰자':.19,'인도하는 빛':.22,'추적자':.24,
@@ -535,12 +535,13 @@ export function firstPerson() {
     const socket = rig.getObjectByName(spec.fp?.Bone ?? 'R_WeaponMaster');
     if (!socket) {disposeSkin?.();weapon.userData.release?.();return;}
     sleeveEdges(rig);
-    if(!native?.idle && skill && ['blast-pack','stealth-drone','spycam','trademark','cyber-cage','neural-theft'].includes(item)){
+    if(!native?.idle && skill && ['blast-pack','stealth-drone','spycam','trademark','cyber-cage','neural-theft','arc-rose','razorvine'].includes(item)){
       const box=boundsFor(g,weapon),span=box.getSize(new T.Vector3()),width=heldSpans[skill];
       const factor=width/Math.max(span.x,span.y,span.z,.001),center=box.getCenter(new T.Vector3());
       const carrier=new T.Group(); carrier.add(...[...weapon.children]);weapon.add(carrier);
       carrier.scale.setScalar(factor);carrier.position.copy(center).multiplyScalar(-factor);
     }
+    if(skill==='포탑' || skill==='알람봇')weapon.visible=false;
     socket.add(weapon);
     const rot = spec.fp?.Rotation ?? { X: 0, Y: 90, Z: 0 };
     weapon.rotation.set(...[rot.X, rot.Y, rot.Z].map(T.MathUtils.degToRad));
@@ -686,7 +687,7 @@ export function firstPerson() {
         state.weapon.visible=!(cast?.name===skill && cast.end>now && (cast.alt || now-cast.at>.14));
       }
       if(skill==='차원 표류')state.weapon.visible=!(p.phaseUntil>now && now>(p.driftEntered??0)+.48);
-      state.weapon.userData.animate?.(now,tag,ratio);
+      state.weapon.userData.animate?.(now,tag,ratio,p.pulseMode);
       state.weapon.userData.drawGlow?.(tag,ratio);
       state.weapon.userData.foldBlade?.(tag,ratio);
       state.core?.update(tag,ratio,now);
