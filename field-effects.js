@@ -55,6 +55,14 @@ else if(kind<1.5){
   float top=.91+.09*noise(vec3(distanceAlong*.75,t*.8,4.));
   a*=1.-smoothstep(top-.025,top,v.y);
 }
+else if(kind>10.5){
+  if(v.x>front || v.x<back)discard;
+  float curl=noise(vec3(v.x*span*.32,v.y*4.-t*1.6,t*.27));
+  float crest=.81+.18*curl,plume=smoothstep(.36,.85,curl+.25*(1.-v.y));
+  a*=(1.-smoothstep(crest-.085,crest,v.y));
+  c=mix(vec3(.015,.19,.085),vec3(.36,.96,.055),plume);
+  c+=vec3(.29,.39,.016)*exp(-v.y*5.);
+}
 else if(kind>6.5){
   float r=length(p.xz)*2., angular=atan(p.z,p.x);
   float edge=1.-smoothstep(.018,.08,abs(.94-r));
@@ -96,12 +104,12 @@ gl_FragColor=vec4(c,a);
 }
 export function deviceMesh(type, color, w, h, d) {
   const smoke = ['smoke', 'cloud', 'darkCover', 'pit'].includes(type),
-    lane = type === 'lane' || type === 'blaze' || type === 'tide',
+    lane = ['lane','blaze','tide','toxinWall'].includes(type),
     pulse = ['sonar', 'dronePulse', 'pulse'].includes(type);
   const field={fire:7,slow:8,stimField:8,orbital:9,groundWave:10,agentPulse:10}[type];
   const mat =
     field ? surface(color,field) : type === 'mosh' || type === 'seize' ? surface(color,type === 'mosh' ? 5 : 6) : smoke || lane || pulse
-      ? surface(color, type === 'tide' ? 4 : type === 'blaze' ? 3 : lane ? 1 : pulse ? 2 : 0)
+      ? surface(color, type === 'toxinWall' ? 11 : type === 'tide' ? 4 : type === 'blaze' ? 3 : lane ? 1 : pulse ? 2 : 0)
       : new T.MeshStandardMaterial({
           color,
           roughness: 0.45,
@@ -237,7 +245,7 @@ export function drawDevice(d, now) {
     u.opacity.value=Math.min(1,(d.end-now)*8);
     return;
   }
-  if (['lane', 'blaze', 'tide'].includes(d.type)) {
+  if (['lane','blaze','tide','toxinWall'].includes(d.type)) {
     m.visible=(d.path?.length??0)>=2;
     if (!m.visible) return;
     if (!m.userData.owned || m.userData.length !== d.path.length) {
@@ -288,7 +296,7 @@ export function visionDistance(ray, d, now, limit) {
     }
     return limit;
   }
-  if (['smoke', 'cloud', 'darkCover'].includes(d.type)) {
+  if (['smoke','cloud','darkCover','pit'].includes(d.type)) {
     const center = new T.Vector3(d.x, d.y + d.h / 2, d.z),
       v = ray.direction.clone(),
       o = ray.origin.clone().sub(center);
@@ -306,11 +314,11 @@ export function visionDistance(ray, d, now, limit) {
     const s = Math.sqrt(det),
       t1 = (-b - s) / a,
       t2 = (-b + s) / a;
-    if (d.type !== 'darkCover' && !['cove','waveform'].includes(d.kind) && t1 < 0 && t2 >= 0) return 0;
+    if (!['darkCover','pit'].includes(d.type) && !['cove','waveform'].includes(d.kind) && t1 < 0 && t2 >= 0) return 0;
     const hit = t1 >= 0 ? t1 : t2;
     return hit >= 0 ? Math.min(limit, hit) : limit;
   }
-  if (!['lane', 'blaze', 'tide'].includes(d.type) || !d.path) return limit;
+  if (!['lane','blaze','tide','toxinWall'].includes(d.type) || !d.path) return limit;
   const age = now - d.born,
     front = d.type !== 'lane' ? 1 : Math.min(1, age / 0.4),
     back = d.type !== 'lane' ? 0 : Math.max(0, (age - 4) / 2);

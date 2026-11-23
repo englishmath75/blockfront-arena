@@ -10,6 +10,7 @@ import {presentAbility} from './ability-surfaces.js';
 import {drawTrails} from './terror-trails.js';
 import {wirePath,drawWire} from './nanowire.js';
 import {drawTejoMap,isTejoMap} from './tejo-map.js';
+import {AstralView} from './astral-view.js';
 import {worldSculpture} from './ability-sculptures.js';
 import {strikePath,insideStrip,tabletRange,sensorArea} from './strike-path.js';
 import { createZone, tickZone } from './ability-zones.js';
@@ -182,6 +183,7 @@ let armedSkill = null,
   cursor = { x: 0, z: 0 };
 const armedName = () => (armedSkill === null ? '' : AGENTS[match.player.agent].gear[armedSkill]);
 function disarm() {
+  if(armedSkill===3 && match?.player?.agent==='아스트라'){match.player.astro=false;command('astral-end');}
   armedSkill = null;
   chargeStart = null;
   divideMode = false;
@@ -200,6 +202,7 @@ function arm(i) {
   playSkillCue(match.player, armedName(), 'equip');
   if (armedName() === '어둠의 장막') alternateView = true;
   const p = match.player;
+  if(armedName()==='우주 장벽'){p.astro=true;(world.astralView??=new AstralView(world.scene)).enter(p);}
   wallAngle = p.yaw;
   cursor = { x: p.x, z: p.z };
   ads = false;
@@ -217,6 +220,7 @@ let closeCollectionMotion;
 import {customOptions,customControls,fly} from './custom-game.js';
 import {dimensionalEffect} from './dimensional-effects.js';
 import {blastImpact} from './blast-pack.js';
+import {toxicPath,toxinContact,applyToxin,separatedByDivide,interceptorTick,vetoTrapTick,evolutionCleanse} from './agent-utilities.js';
 import {tickNest,tickHunterBeam,owlPing} from './deployed-fields.js';
 import {stepHeight} from './walk-surface.js';
 import {peerMotion} from './peer-motion.js';
@@ -252,11 +256,14 @@ function soundOn() {
 function currentSkin(p) {
   const id = heldWeapon(p)?.id;
   if (p.local && p.preview?.weapon === id && mode === 'range') return p.preview.skin;
+  const dropped=heldWeapon(p)?.groundSkin;
+  if(dropped)return skinProfile(skinCatalog[id]?.find(s=>s.id===dropped.id),dropped);
   const skin = skinCatalog[id]?.find((s) => s.id === (p.local ? equipped[id] : p.skinId));
   return skinProfile(skin, p.local ? skinOptions[skin?.id] : { level: p.skinLevel, variant: p.skinVariant });
 }
 function playSkillCue(at, name, phase) {
   const file = skillAudio[name]?.[phase];
+  if(at && separatedByDivide(match.player,at,match.devices,now))return true;
   if (!file || !settings.volume || (at !== match.player && match.player.deafUntil > now)) return false;
   const clip = new Audio('/agent-sfx/' + file);
   clip.volume = Math.min(1, (settings.volume * 0.76) / (1 + range(match.player, at) * 0.13));
@@ -274,7 +281,7 @@ function abilityVoice(p, name) {
 }
 function sound(kind, at) {
   if(!settings.volume)return;
-  if (at && at !== match?.player && match?.player?.deafUntil > now) return;
+  if (at && match?.player && (match.player.deafUntil>now && at!==match.player || separatedByDivide(match.player,at,match.devices,now)))return;
   if (
     !at &&
     match?.player?.kit?.[match.player.selected] &&
@@ -439,7 +446,7 @@ function respawn(p, slot = p.i) {
     isoShield: false,
     flow: null,
     lightRush: null,
-    evolution: false,
+    evolution: false,evolveAt:0,toxinContact:null,toxinFrame:null,astro:false,starReturns:[],viperLock:0,phoenixReturn:0,activeSignatureKills:0,
     empress: false,
     canOverheal: false,
     overheal: 0,
@@ -584,7 +591,8 @@ function startRound() {
     p.signatureAt = 0;
     p.burstRemaining = 0;
     if (!practice() && p.ult >= AGENTS[p.agent].economy[3].points) p.charges[3] = 1;
-    respawn(p);
+    const stars=swap || match.round===1?1:Math.min(5,(p.stars??0)+1);
+    respawn(p);if(p.agent==='아스트라' && !practice() && !rush())p.stars=stars;
   }
   match.devices.forEach(disposeDevice);
   match.devices = [];
@@ -749,7 +757,7 @@ function environmentDeath(p) {
 }
 function fieldSound(event,at) {
   const self=match.player, distance=range(self,at);
-  if(distance>38 || (at!==self && self.deafUntil>now))return;
+  if(distance>38 || (at!==self && self.deafUntil>now) || separatedByDivide(self,at,match.devices,now))return;
   const pan=distance<.1?0:((at.x-self.x)*Math.cos(self.yaw)-(at.z-self.z)*Math.sin(self.yaw))/distance;
   fieldAudio(audio,event,settings.volume*.8/(1+distance*.12),pan);
 }
@@ -791,11 +799,12 @@ function walk(dt, p = match.player, keys = localKeys, prediction=false) {
     p.vy = p.vx = p.vz = 0;
     return;
   }
+  if(p.astro && grounded(p)){p.vx=p.vz=0;return;}
   if (p.trappedBy || p.downedKayo) {
     p.vx = p.vy = p.vz = 0;
     return;
   }
-  if (p.flow) {
+  if (p.flow && (now>=p.flow.start || !grounded(p))) {
     if (now < p.flow.start) {
       p.vy = 0;
       return;
@@ -804,13 +813,13 @@ function walk(dt, p = match.player, keys = localKeys, prediction=false) {
       delta = vec(f.x - p.x, f.y - p.y - p.height * 0.6, f.z - p.z),
       distance = delta.length();
     if (distance < 0.5) {
-      p.flow = null;
+      p.flow=null;p.nextShot=Math.max(p.nextShot,now+.3);
       return;
     }
     delta.multiplyScalar(Math.min(distance, 22.5 * dt) / distance);
     move(p, delta.x, delta.z);
     if (!world.structure.blocked(p.x, p.z, p.y + delta.y, 0.25, p.height)) p.y += delta.y;
-    if (now > f.start + 0.75) p.flow = null;
+    if (now>f.start+.75 || distance<22.5*dt+.5){p.flow=null;p.nextShot=Math.max(p.nextShot,now+.3);}
     return;
   }
   if (p.lightRush && now < p.lightRush.end) {
@@ -937,7 +946,7 @@ function eliminate(p, attacker, attack) {
   if (attack?.weapon === 'blades' && !attack.alt && attacker.kit.special?.id === 'blades')
     attacker.kit.special.mag = 5;
   if (p.recall) {
-    Object.assign(p, p.recall, { recall: null, hp: 100, vy: 0 });
+    returnPhoenix(p);
     return;
   }
   if (attacker !== p) {
@@ -964,6 +973,10 @@ function eliminate(p, attacker, attack) {
     attacker.beamUntil = now + 10;
     attacker.beamAmmo = 40;
     attacker.fuel = 100;
+  }
+  if(['피닉스','허시'].includes(attacker.agent) && hostile(attacker,p) && attacker.charges[2]<AGENTS[attacker.agent].economy[2].max){
+    attacker.activeSignatureKills=(attacker.activeSignatureKills??0)+1;
+    if(attacker.activeSignatureKills>=2){attacker.charges[2]++;attacker.activeSignatureKills=0;}
   }
   if (attacker.agent === '제트' && hostile(attacker, p) && !attacker.charges[2]) {
     attacker.dashKills = (attacker.dashKills ?? 0) + 1;
@@ -1368,6 +1381,34 @@ function disposeDevice(device) {
   device.mesh.material.dispose();
   if (device.mesh.userData.owned) device.mesh.geometry.dispose();
 }
+function remoteReach(p,target){
+  if(p.agent!=='허시' || p.down || p.suppressed>now)return false;
+  const eye=vec(p.x,p.y+p.height,p.z),delta=vec(target.x,target.y??0,target.z).sub(eye),len=delta.length();
+  if(len>8 || !len)return false;
+  const ray=new T.Ray(eye,delta.normalize());
+  return ray.direction.dot(aim(p.yaw,p.pitch))>.93 && world.mapHit(ray,len,match.devices,false)>=len-.15;
+}
+function looseGun(p){
+  const ray=new T.Ray(vec(p.x,p.y+p.height,p.z),aim(p.yaw,p.pitch));
+  return match.devices.filter(d=>d.kind==='droppedGun' && d.end>now && (range(d,p)<2 && Math.abs(p.y-d.y)<1.6 || remoteReach(p,{...d,y:d.y+.18})))
+    .map(d=>({d,error:ray.distanceToPoint(vec(d.x,d.y+.18,d.z))})).filter(v=>v.error<.8).sort((a,b)=>a.error-b.error)[0]?.d;
+}
+function dropWeapon(p,slot){
+  const item=p.kit[slot];if(!item || !['primary','secondary'].includes(slot))return;
+  const ray=new T.Ray(vec(p.x,p.y+p.height*.8,p.z),aim(p.yaw,0));
+  const to=ray.at(Math.max(.05,world.mapHit(ray,1.1,match.devices)-.15),new T.Vector3());
+  const floor=floorAt(to.x,to.z,p.y+1);if(!Number.isFinite(floor))return;
+  const d=addDevice('deployed',to.x,to.z,p.team,300,.42,.18,.2,'#526775',p,floor);
+  const chosen=slot===p.selected?currentSkin(p):null;
+  Object.assign(d,{kind:'droppedGun',slot,item:{...item,groundSkin:item.groundSkin??(chosen?{id:chosen.id,level:chosen.level,variant:chosen.variant}:{id:null})},angle:p.yaw});
+  delete p.kit[slot];if(p.selected===slot)equip(p.kit.secondary?'secondary':'melee',p);
+}
+function returnPhoenix(p){
+  const anchor=p.recall;if(!anchor)return;
+  Object.assign(p,anchor,{recall:null,hp:100,vx:0,vy:0,vz:0,down:false,nextShot:now+.55});
+  for(const d of match.devices)if(d.kind==='phoenixMark' && d.owner===p.id)d.end=now;
+  Object.assign(addDevice('pulse',p.x,p.z,p.team,.75,1.45,1.45,2,'#ff8b30',p,p.y),{kind:'phoenixEcho',name:'역습',cueAt:now});
+}
 function dropCore(p) {
   Object.assign(match.core, { state: 'dropped', carrier: null, x: p.x, y: p.y, z: p.z });
   clearChannel();
@@ -1377,7 +1418,7 @@ function channel(dt) {
   const p = match.player;
   if (match.phase === 'fight' && core.state === 'dropped') {
     const pickup = match.players.find(
-      (o) => alive(o) && isAttack(o) && Math.hypot(range(o, core), o.y - (core.y ?? 0)) < 1.05 && o.channel,
+      (o) => alive(o) && isAttack(o) && (Math.hypot(range(o,core),o.y-(core.y??0))<1.05 || remoteReach(o,{...core,y:(core.y??0)+.18})) && o.channel,
     );
     if (pickup) {
       Object.assign(core, { state: 'carried', carrier: pickup });
@@ -1459,6 +1500,7 @@ function fieldContext() {
     core,
     hostile,
     visible: hasSight,
+    liftHeight(o,meters){const cap=world.structure.ceiling(o.x,o.z,o.y+o.height,o.y+o.height+meters);return Number.isFinite(cap)?Math.max(o.y,cap-o.height-.08):o.y+meters;},
     hurt,
     move,
     canPlant: siteAt,
@@ -1528,9 +1570,9 @@ function fieldContext() {
     },
   };
 }
-const preplace=new Set(['나노스웜','알람봇','포탑','면도날 덩굴','가지치기','아크 장미']);
+const preplace=new Set(['독성 장막','독성 연기','지름길','목조르기','요격기','나노스웜','알람봇','포탑','면도날 덩굴','가지치기','아크 장미']);
 const placingAllowed=name=>active() || match.phase==='buy' && preplace.has(name);
-let heldRecall=null;
+let heldRecall=null,pitDismissAt=0;
 function recoverDevice(p,d){
   const slot=AGENTS[p.agent].gear.indexOf(d.name);
   if(slot<0 || d.end<=now || p.down)return;
@@ -1545,6 +1587,13 @@ function owned(p, name) {
 }
 function deviceAction(p, d, interact=false) {
   if (!d || d.owner !== p.id || d.end <= now) return;
+  if(d.kind==='star' && interact){
+    const r=timing['성운'].radius;
+    Object.assign(addDevice('darkCover',d.x,d.z,p.team,1.05,r*2,r*2,r*2,'#8b43ab',p,d.y-r*.65),{name:'성운',kind:'nebula',cueAt:now});
+    d.end=now;if(!practice()){if(match.phase==='buy')p.stars=Math.min(5,p.stars+1);else p.starReturns.push(now+25);}return;
+  }
+  if(interact && match.phase==='buy' && ['poisonOrb','passage','vetoTrap','interceptor'].includes(d.kind) && range(p,d)<=4){recoverDevice(p,d);return;}
+  if(d.kind==='interceptor' && interact){if(!d.on && range(p,d)<=32.5){d.end=now;p.deviceReturns[2]=now+20;}return;}
   if(interact && (d.kind==='rose' || d.kind==='shear' && match.phase==='buy' && range(p,d)<=4)){recoverDevice(p,d);return;}
   if(d.kind==='sonic-sensor'){
     if(interact && !d.triggerAt && range(p,d)<=27){d.end=now;p.charges[1]=Math.min(AGENTS[p.agent].economy[1].max,p.charges[1]+1);}
@@ -1563,6 +1612,13 @@ function deviceAction(p, d, interact=false) {
     d.end=now;return;
   }
   if (d.kind === 'anchor' || d.kind === 'passage' || d.kind === 'beacon') {
+    if(d.kind==='passage'){
+      if(match.phase==='buy' || d.start>now || range(p,d)>30 || p.suppressed>now)return;
+      const pos=world.structure.spawn(d.x,d.z,d.y);
+      p.gateJump=true;p.destination=pos;p.teleportAt=now+.65;p.nextShot=Math.max(p.nextShot,now+1);
+      for(const at of [p,d])Object.assign(addDevice('pulse',at.x,at.z,p.team,.9,1.3,1.3,2.3,'#3bd7df',p,at.y),{kind:'vetoFold',name:d.name,cueAt:now});
+      d.end=now;return;
+    }
     if (d.kind === 'anchor' && range(p, d) > timing['랑데부']['anchor radius']) return;
     if(d.kind==='anchor'){
       for(const point of [p,d])Object.assign(addDevice('pulse',point.x,point.z,p.team,.62,2,2,2.4,'#efbb65',p,point.y),{kind:'rendezvousFold',name:'랑데부',cueAt:now});
@@ -1597,37 +1653,23 @@ function deviceAction(p, d, interact=false) {
     return;
   }
   if (['poisonLine', 'poisonOrb'].includes(d.kind)) {
-    if (!d.on && p.fuel < 20) return;
-    d.on = !d.on;
-    for (const v of match.devices) if (v.parent === d.id) v.end = now;
-    if (d.on) {
-      const count = d.kind === 'poisonOrb' ? 1 : 13;
-      for (let i = 0; i < count; i++) {
-        const x = d.x - Math.sin(d.angle) * i * 2,
-          z = d.z - Math.cos(d.angle) * i * 2,
-          y = world.structure.support(x, z, d.y + 5);
-        if (!Number.isFinite(y)) continue;
-        const v = addDevice(
-          'smoke',
-          x,
-          z,
-          p.team,
-          120,
-          count === 1 ? 8 : 2.2,
-          count === 1 ? 8 : 2.2,
-          5,
-          '#519c5a',
-          p,
-          y,
-        );
-        v.parent = d.id;
-      }
+    if(!d.on && (p.fuel<30 || d.start>now || d.lock>now || !active() || p.down || p.suppressed>now))return;
+    d.on=!d.on;
+    if(!d.on){
+      d.lock=now+5;p.viperLock=now+1;
+      for(const v of match.devices)if(v.parent===d.id)v.end=Math.min(v.end,now+.8);
+      return;
     }
+    const wall=d.kind==='poisonLine',r=timing['독성 연기'].radius;
+    const v=addDevice(wall?'toxinWall':'smoke',d.x,d.z,p.team,120,wall?.18:2*r,wall?1:2*r,wall?4.5:2*r,'#56bc21',p,wall?d.y:d.y-r*.7);
+    Object.assign(v,{name:d.name,kind:wall?'toxinWall':'toxinCloud',parent:d.id,start:now+.18,cueAt:now});
+    if(wall)v.path=d.path;
     return;
   }
-  if (d.kind === 'interceptor') {
-    d.on = !d.on;
-    return;
+  if(d.kind==='interceptor'){
+    if(d.on || d.lock>now || !active() || p.suppressed>now)return;
+    d.on=true;d.start=now+.5;d.end=d.start+9;d.cueAt=d.start;
+    if(!practice())p.deviceReturns[2]=d.end+(timing[d.name]?.cooldown??40);return;
   }
   if(d.kind==='cage'){
     const r=timing['사이버 감옥']['cylinder radius'];
@@ -1724,7 +1766,7 @@ function ability(i, p = match.player, params = {}) {
     const m = params.star;
     if (
       !p.down &&
-      active() &&
+      (active() || match.phase==='buy') &&
       !(p.suppressed > now) &&
       Number.isFinite(m.x) &&
       Number.isFinite(m.z) &&
@@ -1735,7 +1777,7 @@ function ability(i, p = match.player, params = {}) {
       const y = floorAt(m.x, m.z, p.y + 20);
       if (Number.isFinite(y)) {
         const d = addDevice('star', m.x, m.z, p.team, 300, 0.7, 0.7, 0.25, '#bf89ff', p, y + 0.06);
-        d.start = now + 0.5;
+        Object.assign(d,{kind:'star',name:'성운',start:now+.5});
         if (!practice()) p.stars--;
       }
     }
@@ -1758,9 +1800,11 @@ function ability(i, p = match.player, params = {}) {
     }
     if (inFlight && ['섬광등', '진형 붕괴', '일체 정지'].includes(slotName)) {
       if (slotName === '일체 정지') inFlight.end = now;
-      else if (inFlight.alt) {
-        const v = aim(p.yaw, p.pitch).multiplyScalar(22);
-        Object.assign(inFlight, { vx: v.x, vy: v.y, vz: v.z, alt: false });
+      else if (!inFlight.stuck && !inFlight.redirected) {
+        const dir=aim(p.yaw,p.pitch),ray=new T.Ray(vec(p.x,p.y+p.height,p.z),dir);
+        const target=ray.at(world.mapHit(ray,45,match.devices),new T.Vector3());
+        const v=target.sub(vec(inFlight.x,inFlight.y,inFlight.z)).normalize().multiplyScalar(22);
+        Object.assign(inFlight,{vx:v.x,vy:v.y,vz:v.z,alt:false,redirected:true,end:now+3});
       }
       return;
     }
@@ -1845,7 +1889,7 @@ function ability(i, p = match.player, params = {}) {
     stat = timing[name] ?? {};
   const dir = aim(p.yaw, p.pitch),
     line = new T.Ray(vec(p.x, p.y + p.height, p.z), dir);
-  const castReach=stat['max targeting distance']??stat['max deploy distance']??stat['max cast radius']??(name==='랑데부'?stat['max cast distance']:undefined)??18;
+  const castReach=stat['max targeting distance']??stat['max deploy distance']??stat['max cast radius']??stat['deployment distance']??(name==='랑데부'?stat['max cast distance']:undefined)??18;
   const mountInfo={};
   const distance = world.mapHit(line, castReach, match.devices,false,mountInfo),
     point = line.at(Math.max(0.1, distance - 0.55), vec(0, 0, 0));
@@ -1884,9 +1928,13 @@ function ability(i, p = match.player, params = {}) {
       .filter((v) => v.err < 3)
       .sort((a, b) => a.err - b.err)[0]?.d;
     if (!star) return;
-    if (!practice() && (p.starTimers?.[i] ?? 0) > now) return;
-    star.end = now;
-    (p.starTimers ??= {})[i] = now + (i === 2 ? 35 : 45);
+    const timers=(p.starTimers??={});
+    if(i===2){
+      const queue=(timers.nebula??[]).filter(end=>end>now);
+      if(!practice() && queue.length>=2)return;
+      if(!practice())queue.push(Math.max(now,queue.at(-1)??0)+35);timers.nebula=queue;
+    }else{if(!practice() && (timers[i]??0)>now)return;timers[i]=now+60;}
+    star.end=now;
     cost = 0;
     if (i === 2) {
       const r = stat.radius,
@@ -1903,7 +1951,7 @@ function ability(i, p = match.player, params = {}) {
           p,
           star.y - r * 0.65,
         );
-      d.start = now + stat['windup time'];
+      Object.assign(d,{name,kind:'nebula',start:now+stat['windup time'],cueAt:now+stat['windup time']});
     } else createZone(i === 0 ? 'well' : 'nova', name, star, p, fieldContext());
   } else if (name === '우주 장벽') {
     const [a, b] = params.marks ?? [];
@@ -1911,7 +1959,7 @@ function ability(i, p = match.player, params = {}) {
     const d = addDevice('plane', a.x, a.z, p.team, 21, HALF * 4, 0.22, 55, '#8f62c0', p, -8);
     d.angle = Math.atan2(a.z - b.z, b.x - a.x);
     d.bulletWall = true;
-    d.kind = 'divide';
+    d.kind = 'divide';d.name=name;d.cueAt=now+2;
     d.start = now + 2;
   } else if (name === '대비책' || name === '심판') {
     const harbor = name === '심판';
@@ -1950,8 +1998,8 @@ function ability(i, p = match.player, params = {}) {
     p.isoReady = now + (stat.windup ?? 1);
     p.isoShield = false;
   } else if (name === '진화') {
-    p.evolution = true;
-    p.stimUntil = now + 3600;
+    p.evolveAt=now+stat['windup time'];
+    Object.assign(addDevice('pulse',p.x,p.z,p.team,1.2,1.1,1.1,2.1,'#39cddd',p,p.y),{kind:'evolving',name,cueAt:p.evolveAt});
   } else if (name === '차원 표류') {
     p.phaseUntil = now + (stat.duration ?? 10);
     p.driftEntered=now;
@@ -2045,13 +2093,15 @@ function ability(i, p = match.player, params = {}) {
       y = floorAt(m.x, m.z, p.y + 1.3);
     if (!Number.isFinite(y)) return;
     const cloud = addDevice('pit', m.x, m.z, p.team, 3600, 24, 24, 8, '#568c35', p, y);
-    cloud.hp = 0;
+    Object.assign(cloud,{hp:0,name,kind:'toxinPit',start:now+.7,cueAt:now+.7});
   } else if (name === '재생') {
     if (p.healingPool <= 0) return;
     p.regrowing = true;
     cost = 0;
   } else if (name === '격류') {
-    const m = line.at(Math.min(distance, 12), new T.Vector3());
+    const m=line.at(Math.max(.1,Math.min(distance-.32,12)),new T.Vector3());
+    Object.assign(addDevice('pulse',m.x,m.z,p.team,1.25,.44,.44,.44,'#ed5bfc',p,m.y),{kind:'flowAnchor',name,start:now+.75,cueAt:now+.75});
+    p.vx=p.vz=p.vy=0;p.nextShot=Math.max(p.nextShot,now+.75);
     p.flow = { x: m.x, y: m.y, z: m.z, start: now + (stat['windup time'] ?? 0.75) };
   } else if (name === '광속') {
     p.lightRush = { start: now, end: now + 0.45, extra: !params.alt };
@@ -2196,7 +2246,7 @@ function ability(i, p = match.player, params = {}) {
       v.end = now + 6.3;
     }
     p.vx = p.vz = 0;
-  } else if (deviceKind(name) && !['사이버 감옥','나노스웜','면도날 덩굴'].includes(name)) {
+  } else if (deviceKind(name) && !['독성 연기','사이버 감옥','나노스웜','면도날 덩굴'].includes(name)) {
     const kind = deviceKind(name),
       self = kind === 'beacon',
       pos = kind==='gatecrash' ? line.at(Math.min(1.3,Math.max(.1,distance-.24)),vec(0,0,0)) : self ? p : kind==='camera' ? line.at(Math.max(0,distance-.06),vec(0,0,0)) : point;
@@ -2217,6 +2267,11 @@ function ability(i, p = match.player, params = {}) {
       y,
     );
     Object.assign(d, { name,kind,hp:45,on:false,angle:p.yaw });
+    if(kind==='poisonLine'){
+      const path=toxicPath(p,floorAt);if(path.length<2){d.end=now;return;}
+      Object.assign(d,{x:path[0][0],y:path[0][1],z:path[0][2],path,hp:0,end:now+300});
+    }
+    if(kind==='passage' || kind==='interceptor')Object.assign(d,{start:now+(stat['deployment time']??.5),hp:kind==='passage'?50:100,end:now+300});
     if(kind==='camera')d.normal=mountInfo.normal;
     if(kind==='gatecrash')Object.assign(d,{travel:!params.alt,travelSpeed:8,hp:20,end:now+stat['tether duration']});
     if(kind==='rose'){d.normal=mountInfo.normal;d.lock=now+stat['deploy time'];d.hp=20;}
@@ -2466,7 +2521,8 @@ function ability(i, p = match.player, params = {}) {
       }
       case 'recall':
         p.recall = { x: p.x, z: p.z, y: p.y, yaw: p.yaw, pitch: p.pitch, shield: p.shield };
-        p.recallEnd = now + 10;
+        p.recallEnd=now+10;
+        Object.assign(addDevice('pulse',p.x,p.z,p.team,10,1.38,1.38,.08,'#ff9f33',p,p.y),{kind:'phoenixMark',name});
         break;
       case 'scan':
         p.scan = now + 4;
@@ -2522,6 +2578,7 @@ function ability(i, p = match.player, params = {}) {
   }
 }
 function flashPlayer(player, source, duration) {
+  if(player.evolution)return;
   const dir=vec(source.x-player.x,source.y-player.y-player.height,source.z-player.z).normalize();
   const facing=aim(player.yaw,player.pitch).dot(dir);
   const strength=T.MathUtils.smoothstep(facing,-.65,.5);
@@ -2570,12 +2627,16 @@ function tickProjectiles(dt) {
       createZone(
         a.type,
         a.name,
-        { x: a.x, z: a.z, y: a.type === 'knife' ? a.y : base, heal: a.heal },
+        { x: a.x, z: a.z, y: ['knife','collapse','suspension'].includes(a.type) ? a.y : base, heal: a.heal },
         p,
         fieldContext(),
       )
     )
       return false;
+    if(a.type==='poisonCan' || a.type==='vetoTrap'){
+      const gas=a.type==='poisonCan',d=addDevice('deployed',a.x,a.z,p.team,300,.34,.34,.26,gas?'#70bd31':'#3adcdf',p,base);
+      Object.assign(d,{kind:gas?'poisonOrb':'vetoTrap',name:a.name,start:now+(gas?.25:1.5),on:false,hp:gas?0:70});return false;
+    }
     if(a.type==='swarm' || a.type==='vinePod'){
       const vine=a.type==='vinePod';
       const pod=addDevice('deployed',a.x,a.z,p.team,240,.25,.23,.22,vine?'#b29dbd':'#c657bc',p,base);
@@ -2680,6 +2741,7 @@ function tickProjectiles(dt) {
       );
       d.acid = acid;
       d.phoenix = a.name === '뜨거운 손';
+      Object.assign(d,{name:a.name,cueAt:now});
     } else if (a.type === 'stim') place('stimField', 12, 8, 2.5, '#eeb452');
     else if (['flash', 'curve', 'hawk', 'flare'].includes(a.type)) {
       let confirmed=false;
@@ -2693,6 +2755,7 @@ function tickProjectiles(dt) {
           if(hostile(p,o))confirmed=true;
         }
       const light=place('pulse',0.26,1.5,1.4,'#fff5ce',a.y);
+      if(['curve','flare'].includes(a.type))Object.assign(light,{kind:'flashBloom',name:a.name,cueAt:now});
       if(a.type==='hawk' && confirmed)Object.assign(light,{name:a.name,cueAt:now,audience:p.team});
     } else {
       const r = a.type === 'rocket' ? 6 : a.type === 'bomblet' ? 3 : 5,
@@ -2795,7 +2858,7 @@ function drawProjectiles() {
           if (arrow) orientation.rotation.y = Math.PI / 2;
           attachProp(orientation, slug, arrow ? 0.72 : 0.32);
         m.material.visible = false;
-      } else if (['delivery','haunt','seize','mpulse','storm'].includes(a.type)) {
+      } else if ((['delivery','haunt','seize','mpulse','storm','flare','collapse','suspension','curve','poisonCan','vetoTrap'].includes(a.type) || a.name==='뜨거운 손' || a.name==='뱀 이빨')) {
         m.scale.setScalar(1);m.material.visible=false;m.add(worldSculpture(a.name,a.type==='delivery'?.21:.32));
       } else if (a.type === 'cloud') {
         m.geometry = new T.SphereGeometry(0.6, 16, 12);
@@ -2908,12 +2971,26 @@ function applyAction(p, a) {
       if(placed)recoverDevice(p,placed);
       break;
     }
+    case 'close-pit':
+      if(p.agent==='바이퍼')for(const d of match.devices)if(d.owner===p.id && d.kind==='toxinPit')d.end=now;
+      break;
+    case 'astral-end':
+      p.astro=false;break;
+    case 'astral-recall': {
+      if(!p.astro || p.down || !Number.isFinite(a.value?.x) || !Number.isFinite(a.value?.z))break;
+      const star=match.devices.filter(d=>d.kind==='star' && d.owner===p.id && d.end>now && range(d,a.value)<3).sort((u,v)=>range(u,a.value)-range(v,a.value))[0];
+      if(star)deviceAction(p,star,true);
+      break;
+    }
     case 'interact':
       {
         if(p.netUntil>now)break;
         const d = aimedDevice(p);
+        const gun=!d && looseGun(p);
+        if(p.down || p.detainedUntil>now)break;
         if (d) deviceAction(p, d, true);
-        else useMechanism(world.mechanisms, p);
+        else if(gun){dropWeapon(p,gun.slot);p.kit[gun.slot]=gun.item;equip(gun.slot,p);gun.end=now;}
+        else useMechanism(world.mechanisms,p,remoteReach);
       }
       break;
     case 'inspect':
@@ -2929,13 +3006,14 @@ function applyAction(p, a) {
       reload(p);
       break;
     case 'equip':
-      p.queuedSkill = null;
+      p.astro=false;p.queuedSkill = null;
       p.armedSlot = null;
       if (['primary', 'secondary', 'melee', 'special'].includes(a.value)) equip(a.value, p);
       break;
     case 'arm':
       if (Number.isInteger(a.value) && a.value >= 0 && a.value < 4) {
         const gear=AGENTS[p.agent].gear[a.value],stat=timing[gear]??{};
+        if(gear==='우주 장벽' && !p.down && !(p.suppressed>now))p.astro=true;
         if(gear==='대미 장식' && !(p.rocketUntil>now)){
           if(p.down || !active() || p.suppressed>now || dm() || !(p.charges[a.value]>0))break;
           p.rocketUntil=now+stat['equip time']+stat['max duration'];
@@ -2956,7 +3034,7 @@ function applyAction(p, a) {
       else if (Number.isInteger(a.value) && a.value >= 0 && a.value < 4) ability(a.value, p);
       break;
     case 'drop':
-      if (active() && match.core.carrier === p) dropCore(p);
+      if(!p.down && (active() || match.phase==='buy')){if(match.core.carrier===p)dropCore(p);else dropWeapon(p,p.selected);}
       break;
     case 'buy':
       purchase(p, a.value);
@@ -3073,7 +3151,9 @@ function step(dt) {
       p.overheal = 0;
       p.overhealEnd = 0;
     }
-    if (p.evolution && !p.down) p.hp = Math.min(100, p.hp + dt * 5);
+    if(p.evolveAt && now>=p.evolveAt){p.evolveAt=0;if(!p.down){p.evolution=true;p.stimUntil=now+3600;evolutionCleanse(p);}}
+    if(p.evolution && !p.down)p.hp=Math.min(100,p.hp+dt*5);
+    while(p.starReturns?.length && p.starReturns[0]<=now){p.starReturns.shift();p.stars=Math.min(5,p.stars+1);}
     if (p.target) continue;
     if(p.rocketUntil && p.rocketUntil<=now){
       p.rocketUntil=0;
@@ -3142,8 +3222,8 @@ function step(dt) {
     }
     if (p.agent === '바이퍼') {
       const emit = match.devices.filter((d) => d.owner === p.id && d.on && d.kind?.startsWith('poison'));
-      p.fuel = Math.max(0, Math.min(100, (p.fuel ?? 100) + (emit.length ? -7 : 4) * dt));
-      if (!p.fuel) for (const d of emit) deviceAction(p, d);
+      p.fuel=Math.max(0,Math.min(100,p.fuel+(emit.length?-100/12*(emit.length>1?1.5:1):now>=p.viperLock?3.33:0)*dt));
+      if(!p.fuel || p.down || p.suppressed>now)for(const d of emit)deviceAction(p,d);
     }
     if (p.healLeft > 0) {
       p.healTick += dt * p.healRate;
@@ -3250,7 +3330,7 @@ function step(dt) {
     }
     updateWeapon(p, dt);
     if (p.pilot && p.down) p.pilot = null;
-    if (p.recall && now >= p.recallEnd) Object.assign(p, p.recall, { recall: null, hp: 100, vy: 0 });
+    if(p.recall && now>=p.recallEnd)returnPhoenix(p);
   }
   firePressed = false;
   tickProjectiles(dt);
@@ -3346,12 +3426,13 @@ function step(dt) {
       return true;
     }
     if (d.type === 'pit' && caster) {
+      if(now<d.start)return true;
       if (caster.down) d.end = now;
       if (range(caster, d) < 12) d.outAt = 0;
       else d.outAt ||= now;
       if (d.outAt && now - d.outAt >= 8) d.end = now;
       for (const o of match.players)
-        if (!o.down && hostile(caster, o) && range(o, d) < 12 && Math.abs(o.y - d.y) < 8) {
+        if (!o.down && !o.evolution && hostile(caster, o) && range(o, d) < 12 && Math.abs(o.y - d.y) < 8) {
           const loss = Math.min(Math.max(0, o.hp - 1), dt * 30);
           o.hp -= loss;
           o.decayLost = (o.decayLost ?? 0) + loss;
@@ -3359,21 +3440,11 @@ function step(dt) {
         }
       return true;
     }
-    if (d.kind === 'interceptor' && d.on && caster && now >= (d.next ?? 0)) {
-      for (const a of match.arrows) {
-        const owner = match.players.find((o) => o.id === a.owner);
-        if (
-          owner &&
-          hostile(caster, owner) &&
-          range(a, d) < 10 &&
-          ['recon', 'knife', 'haunt', 'hawk', 'seize', 'net', 'paint'].includes(a.type) &&
-          hasSight(d, { ...a, height: 0.1 }, 10)
-        ) {
-          a.intercepted = true;
-          d.next = now + 0.4;
-          break;
-        }
-      }
+    if(d.kind==='interceptor' && caster){interceptorTick(d,caster,field,match.arrows,match.devices);return true;}
+    if(d.kind==='vetoTrap' && caster){vetoTrapTick(d,caster,field);return true;}
+    if(d.kind==='toxinCloud' || d.kind==='toxinWall'){
+      if(now>=d.start)for(const o of match.players)if(o.team!==d.team && toxinContact(d,o))applyToxin(o,now,dt);
+      return true;
     }
     if(d.type==='shockBurst'){
       if(!d.fired && now>=d.start){
@@ -3434,7 +3505,7 @@ function step(dt) {
               o.healLeft = 50;
               o.healRate = 12.5;
               o.healTick = 0;
-            } else if (hostile(owner, o)) hurt(o, 8, owner);
+            }else if(o!==owner)hurt(o,hostile(owner,o)?8:8/3,owner);
           }
       }
       return true;
@@ -3587,8 +3658,8 @@ function step(dt) {
     for (const o of match.players) {
       if (
         !owner ||
-        !hostile(owner, o) ||
-        o.down ||
+        (!hostile(owner,o) && !d.acid && !(d.phoenix && o!==owner)) ||
+        o.down || o.evolution ||
         o.y > d.y + d.h + 0.38 ||
         o.y + o.height < d.y ||
         Math.abs(o.x - d.x) > d.w / 2 ||
@@ -3599,11 +3670,12 @@ function step(dt) {
       else if(d.type==='trap')o.tag=now+.7;
       if (burn && Math.hypot(o.x - d.x, o.z - d.z) <= d.w / 2) {
         if (d.acid) o.vulnerable = now + 2;
-        hurt(o, d.phoenix ? 15 : d.acid ? 3 : 10, owner);
+        hurt(o,(d.phoenix?15:d.acid?3:10)*(o===owner || hostile(owner,o)?1:1/3),owner);
       }
     }
     return true;
   });
+  for(const p of match.players)if(p.evolution && !p.down)evolutionCleanse(p);
   match.devices = remaining.concat(match.devices.slice(currentDevices.length));
   for (const [d, owner] of waves) {
     const front=addDevice('reconWave',d.x,d.z,d.team,.66,.01,.01,.01,'#4ddfff',owner,d.y);
@@ -3667,7 +3739,12 @@ function drawWorld(realTime) {
         d.mesh.userData.lastSound = cueAt;
         if (now - cueAt < 0.55 && (!d.audience || d.audience===match.player.team)) playSkillCue(d, d.name, 'impact');
       }
-      if(specialVisual)continue;
+      if(specialVisual){if(d.kind==='vetoTrap' && d.team!==match.player.team && !d.triggerAt && now>d.start && range(match.player,d)>2.5)d.mesh.visible=false;continue;}
+      if(d.kind==='droppedGun'){
+        const mesh=d.mesh;
+        if(!mesh.userData.requested){mesh.userData.requested=true;mesh.scale.setScalar(1);attachProp(mesh,modelKey(d.item.id,d.item.groundSkin),d.slot==='primary'?.89:.34);}
+        mesh.position.set(d.x,d.y+.11,d.z);mesh.rotation.set(0,d.angle,1.44);continue;
+      }
       if(d.kind==='trapwire' && d.wireEnd){wireVisual(d,now,match.player);continue}
       if(d.kind==='theft' || d.kind==='knife'){
         const mesh=d.mesh;
@@ -3749,7 +3826,7 @@ function drawWorld(realTime) {
       astral = watch === self && armedName() === '어둠의 장막' && alternateView,
       pilotView = watch.pilot?.kind === '잠입 드론';
     const pit = match.devices.find(
-      (d) => d.type === 'pit' && range(watch, d) < 12 && Math.abs(watch.y - d.y) < 8,
+      (d) => d.type === 'pit' && now>=d.start && range(watch,d)<12 && Math.abs(watch.y-d.y)<8,
     );
     world.scene.fog.near = pit ? 1 : shadow ? 2 : 62;
     world.scene.fog.far=pit?8.1:shadow?7:scoutView?timing['정찰자']['vision radius']:190;
@@ -3761,6 +3838,9 @@ function drawWorld(realTime) {
         : shadow
           ? 'brightness(.64)'
           : '';
+    hud.classList.toggle('evolved',!!watch.evolution);
+    hud.classList.toggle('suspended',watch.suspendedUntil>now);
+    hud.classList.toggle('chokehold',watch.deafUntil>now && !!watch.tether);
     hud.classList.toggle('dimensional-drift',watch.agent==='요루' && watch.phaseUntil>now);
     const speed = Math.hypot(watch.vx, watch.vz);
     const movingView=isGuest()?(watch===self?peers.view():peers.other(watch,realTime)):null;
@@ -3851,12 +3931,21 @@ function drawWorld(realTime) {
     if (optical) {
       camera.fov = zoomFov(72,scoped?.[Math.max(0,(watch.zoomStep||1)-1)]??optical.zoomMultiplier);
     }
+    const inForm=watch===self && !self.down && armedName()==='우주 장벽';
+    if(world.astralView)world.astralView.group.visible=inForm;
+    hud.classList.toggle('astral-form',inForm);
+    if(inForm){
+      world.astralView.update(camera,self,localKeys,cursor,world,HALF,realTime,divideMode);
+      world.scene.fog.near=44;world.scene.fog.far=125;world.scene.fog.color.set('#3c255c');
+      canvas.style.filter='sepia(.96) saturate(2.8) hue-rotate(232deg) contrast(1.16) brightness(.82)';
+    }
     world.playersInView.prepare();
     for (const o of match.players) {
       const { g, legs } = o.model;
       const loc=isGuest()?peers.other(o,realTime):o;
-      const revealed=o.revealTeam===self.team && o.revealEnd>now;
-      g.visible=(o!==watch || !!watch.pilot) && alive(o) && !o.ghost && world.playersInView.visible(o,loc,now,revealed)
+      const pitHighlight=pit?.owner===watch.id && hostile(watch,o) && range(watch,o)<8.1 && hasSight({...watch,y:watch.y+watch.height},o,8.4);
+      const revealed=pitHighlight || (o.revealTeam===self.team && o.revealEnd>now);
+      g.visible=(o!==watch || !!watch.pilot || inForm) && (!inForm || !hostile(watch,o) || revealed) && alive(o) && !o.ghost && world.playersInView.visible(o,loc,now,revealed)
         && !(o.agent==='요루' && o.phaseUntil>now && hostile(watch,o) && range(watch,o)>15);
       if(!g.visible)continue;
       g.position.set(loc.x,loc.y,loc.z);
@@ -4008,7 +4097,7 @@ function drawHud() {
   if (p.down && armedSkill !== null && !(p.agent === '클로브' && armedSkill === 2)) disarm();
   minimap(watch);
   const tablet = get('tablet-map');
-  tablet.hidden = !tabletNames.includes(armedName());
+  tablet.hidden=!tabletNames.includes(armedName()) || armedName()==='우주 장벽';
   tablet.classList.toggle('waveform-map',armedName()==='웨이브폼');
   const tejoMap=isTejoMap(armedName());tablet.classList.toggle('tejo-projection',tejoMap);
   if((tejoMap || armedName()==='웨이브폼') && !tablet.hidden)drawTejoMap(tablet,mapBase,HALF,p,armedName(),marks,cursor);
@@ -4180,12 +4269,13 @@ function drawHud() {
                         ? '[F 유지] 스파이크 해제'
                         : core.site + ' 거점 스파이크 활성'
                       : '';
-  const mechanism = interactable(world.mechanisms, p);
-  const aimed = aimedDevice(p);
+  const mechanism=interactable(world.mechanisms,p,remoteReach);
+  const aimed=aimedDevice(p),pickupGun=aimed?null:looseGun(p);
   const mechanismHint = p.pilot
     ? '좌클릭 장치 사용 · 스킬 키로 복귀'
+    : pickupGun?'[F] '+WEAPONS[pickupGun.item.id].name+' 줍기'
     : aimed
-      ? (['sonic-sensor','rose'].includes(aimed.kind) || match.phase==='buy' && ['swarm','vine','shear'].includes(aimed.kind))?'[F] '+aimed.name+' 회수':'[F] 설치한 스킬 작동'
+      ? (['sonic-sensor','rose','star','interceptor'].includes(aimed.kind) || match.phase==='buy' && ['swarm','vine','shear','vetoTrap','passage','poisonOrb'].includes(aimed.kind))?'[F] '+aimed.name+' 회수':'[F] 설치한 스킬 작동'
       : mechanism
         ? mechanism.name +
           ' · ' +
@@ -4201,7 +4291,7 @@ function drawHud() {
         : '';
   const line =
     armedSkill !== null
-      ? armedName()==='대미 장식' && p.rocketUntil>now ? '대미 장식 · '+Math.min(10,Math.ceil(p.rocketUntil-now))+'초 · 좌클릭 발사'
+      ? armedName()==='우주 장벽' ? '별 '+p.stars+'/5 · '+accessHint('우주 장벽') : armedName()==='대미 장식' && p.rocketUntil>now ? '대미 장식 · '+Math.min(10,Math.ceil(p.rocketUntil-now))+'초 · 좌클릭 발사'
       : distanceSmokes.includes(armedName())
         ? armedName() + ' · ' + smokeRange.toFixed(1) + ' m · 좌/우클릭 거리 조절 · 스킬 키 확정 · R 시점'
         : armedName() +
@@ -4396,6 +4486,7 @@ function purchase(p, id) {
   const armor = Object.hasOwn(ARMOR, id) ? ARMOR[id] : null,
     gun = Object.hasOwn(skinCatalog, id) ? WEAPONS[id] : null;
   if (!armor && !gun && !skill) return;
+  if(skill && p.agent==='아스트라'){if(p.stars<5 && (free || p.credits>=150)){p.stars++;if(!free)p.credits-=150;}return;}
   const ability = skill ? AGENTS[p.agent].economy[Number(skill[1])] : null;
   const cost = free ? 0 : (armor?.cost ?? gun?.cost ?? ability?.cost);
   if (p.credits < cost) return;
@@ -4634,7 +4725,7 @@ stateKeys.push(
   'mustKillBy',
   'vulnerable',
   'netUntil',
-  'trappedBy','downedKayo','cameraDart','dartRemoval','overloadedUntil','regrowing','healingPool','rocketUntil',
+  'flow','holdY','evolution','evolveAt','astro','recall','recallEnd','starTimers','starReturns','trappedBy','downedKayo','cameraDart','dartRemoval','overloadedUntil','regrowing','healingPool','rocketUntil',
   'trailEnd','trailOrigin','trailTeam','netRemoval','harmonyUntil','roseFlash','owlDart','owlHitUntil','vineUntil',
 );
 function snapshot() {
@@ -5109,7 +5200,7 @@ window.addEventListener('keydown', (event) => {
     event.preventDefault();
     match.level = ((match.level ?? 0) + 1) % 3;
   }
-  if (code === 'KeyF') command('interact');
+  if (code==='KeyF'){if(armedName()==='우주 장벽')command('astral-recall',{...cursor});else command('interact');}
   if (code === 'KeyR') {
     if (distanceSmokes.includes(armedName())) alternateView = !alternateView;
     else command('reload');
@@ -5130,6 +5221,7 @@ window.addEventListener('keydown', (event) => {
     const i = SLOTS.indexOf(code.slice(3)),
       p = match.player,
       name = AGENTS[p.agent].gear[i];
+    if(name==='독사의 구덩이' && match.devices.some(d=>d.kind==='toxinPit' && d.owner===p.id && d.end>now)){if(!event.repeat)pitDismissAt=performance.now()+400;return;}
     if(p.agent==='킬조이' && [1,2].includes(i) && match.devices.some(d=>d.end>now && d.owner===p.id && d.name===name)){
       heldRecall={code,i,start:performance.now()};return;
     }
@@ -5221,6 +5313,7 @@ window.addEventListener('keydown', (event) => {
   }
 });
 window.addEventListener('keyup', (event) => {
+  if(event.code==='KeyX')pitDismissAt=0;
   if(heldRecall?.code===event.code){
     if(screen==='game' && performance.now()-heldRecall.start>=380)command('recall-tech',heldRecall.i);
     heldRecall=null;
@@ -5238,6 +5331,7 @@ canvas.addEventListener('contextmenu', (event) => event.preventDefault());
 canvas.addEventListener('mousedown', (event) => {
   if (screen !== 'game') return;
   if(event.button===2 && armedSkill===null && match.player.agent==='하버' && match.devices.some(d=>d.type==='tide' && d.owner===match.player.id && !d.stopped && d.path.length<77)){command('ability',{i:1,stop:true});return;}
+  if(event.button===0 && armedSkill===null && match.player.agent==='허시' && match.arrows.some(a=>a.owner===match.player.id && a.type==='suspension')){command('ability',3);return;}
   if (event.button === 2 && match.player.sprinting && armedSkill === null) {
     command('slide');
     return;
@@ -5366,6 +5460,7 @@ function look(dx, dy) {
 }
 window.addEventListener('mousemove', (event) => {
   if (screen !== 'game') return;
+  if(armedName()==='우주 장벽'){world.astralView?.pointer(event,canvas,unlocked);return;}
   if (tabletNames.includes(armedName())) {
     const rect = get('tablet-map').getBoundingClientRect();
     const centred=isTejoMap(armedName()) || armedName()==='웨이브폼',extent=centred?tabletRange(armedName()):HALF;
@@ -5430,6 +5525,7 @@ try {
   let previous = performance.now();
   let carry = 0;
   function frame(time) {
+    if(pitDismissAt && time>=pitDismissAt){pitDismissAt=0;if(screen==='game')command('close-pit');}
     if (document.hidden && room?.host) {
       requestAnimationFrame(frame);
       return;

@@ -21,7 +21,6 @@ const helpers = {
   알람봇: ['alarmbot', 20, 240, 0, '#d6a6d5'],
   트레이드마크: ['trademark', 20, 240, 0, '#dbb460'],
   '음향 센서': ['sonic-sensor', 20, 240, 0, '#84cbea'],
-  목조르기: ['chokehold', 70, 240, 0, '#8fd2b1'],
   가지치기: ['shear', 0, 240, 0, '#d5b2de'],
   함정: ['trapwire', 20, 240, 0, '#77d4f1'],
   봉쇄: ['lockdown', 200, 13.1, 0, '#f6dc70'],
@@ -403,7 +402,6 @@ export function tickField(d, owner, dt, ctx) {
           target.tether = { x: d.x, z: d.z, until: time + 3 };
           target.revealTeam = owner.team;
           target.revealEnd = time + 3;
-          if (d.kind === 'chokehold') decay(target, 50, time + 3);
         }
         d.end = time;
       }

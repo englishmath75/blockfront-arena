@@ -239,17 +239,17 @@ export function switchPos(m) {
   };
 }
 const distance = (a, b) => Math.hypot(a.x - b.x, (a.y ?? 0) - (b.y ?? 0), a.z - b.z);
-export function interactable(ms, p) {
+export function interactable(ms,p,remoteReach) {
   if (p.ride != null) return ms.find((m) => m.id === p.ride);
   return ms.find((m) => {
     if (m.broken) return false;
     if (cable(m)) return distance(p, m) < 2.15 || (m.type !== 'cross' && distance(p, m.to) < 2.15);
-    if (m.type === 'gate' || m.type === 'rotor') return distance({ ...p, y: p.y + 1.1 }, switchPos(m)) < 2.65;
+    if (m.type === 'gate' || m.type === 'rotor') return distance({...p,y:p.y+1.1},switchPos(m))<2.65 || !!remoteReach?.(p,switchPos(m));
     return false;
   });
 }
-export function useMechanism(ms, p) {
-  const m = interactable(ms, p);
+export function useMechanism(ms,p,remoteReach) {
+  const m=interactable(ms,p,remoteReach);
   if (!m) return false;
   if (cable(m)) {
     if (p.ride != null) {

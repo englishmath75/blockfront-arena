@@ -18,7 +18,8 @@ const throws = {
   포화: ['saturate', 22, 12, 1],
   섬광등: ['flare', 21, 0, 1.5],
   '진형 붕괴': ['collapse', 21, 0, 1.5],
-  '일체 정지': ['suspension', 14, 0, 4],
+  '일체 정지': ['suspension', 14, 0, 2],
+  '독성 연기':['poisonCan',17,12,7],목조르기:['vetoTrap',17,13,6],
   'M-파동': ['mpulse', 19, 12, 3],
   장벽망: ['barrier', 19, 12, 3],
   '특별 배송': ['delivery', 22, 8, 3],
@@ -35,7 +36,7 @@ const throws = {
   페인트탄: ['paint', 17, 15, 2.1],
   '둔화 구슬': ['slow', 16, 13, 6],
   소이탄: ['fire', 20, 13, 5],
-  '뜨거운 손': ['fire', 18, 16, 1.6],
+  '뜨거운 손': ['fire', 18, 16, 8],
   '뱀 이빨': ['fire', 24, 12, 6],
   '파편/탄': ['fragment', 18, 13, 4],
   '플래시/드라이브': ['flash', 18, 12, 1.6],
@@ -60,7 +61,7 @@ export const shortThrows = [
   '특별 배송',
   '중력그물',
   '폭파봇 지옥',
-  '나노스웜',
+  '나노스웜','독성 연기','목조르기',
   '지원봇',
   '대비책',
   '관문 충돌',
@@ -80,15 +81,15 @@ export function launch(name, p, params, now, id) {
         : arrow
           ? 13 + base * params.charge
           : base * (params.alt && type !== 'curve' ? 0.53 : 1);
-  const cp = Math.cos(p.pitch);
+  const cp=Math.cos(p.pitch),offset=['flare','collapse','suspension'].includes(type)?.48:0;
   return {
     id,
     name,
     type,
     owner: p.id,
-    x: p.x,
-    y: p.y + p.height - 0.07,
-    z: p.z,
+    x:p.x-Math.sin(p.yaw)*cp*offset,
+    y:p.y+p.height-.07+Math.sin(p.pitch)*offset,
+    z:p.z-Math.cos(p.yaw)*cp*offset,
     vx: -Math.sin(p.yaw) * cp * speed,
     vy: Math.sin(p.pitch) * speed,
     vz: -Math.cos(p.yaw) * cp * speed,
@@ -141,6 +142,7 @@ export function flight(a, dt, now, world, devices, owner) {
       s = Math.sin(t);
     [a.vx, a.vz] = [a.vx * c + a.vz * s, a.vz * c - a.vx * s];
   }
+  if(a.name==='뜨거운 손' && now-a.created>1.5){a.vx=a.vz=0;a.vy=Math.min(-7,a.vy);}
   a.vy -= a.gravity * dt;
   const vel = new T.Vector3(a.vx, a.vy, a.vz),
     len = vel.length(),
@@ -160,7 +162,7 @@ export function flight(a, dt, now, world, devices, owner) {
   a.x += norm.x * 0.035;
   a.y += norm.y * 0.035;
   a.z += norm.z * 0.035;
-  if (['slow','mosh','haunt','seize','cageDisc','fragment','vinePod','swarm','storm','mpulse'].includes(a.type) && norm.y < .55) {
+  if (['fire','slow','mosh','haunt','seize','cageDisc','fragment','poisonCan','vetoTrap','vinePod','swarm','storm','mpulse'].includes(a.type) && norm.y < .55) {
     vel.reflect(norm).multiplyScalar(.65);
     Object.assign(a,{vx:vel.x,vy:vel.y,vz:vel.z});
     return false;
@@ -184,9 +186,9 @@ export function flight(a, dt, now, world, devices, owner) {
     Object.assign(a, { vx: vel.x, vy: vel.y, vz: vel.z, type: 'flash', end: now + 0.6 });
     return false;
   }
-  if (['flare', 'collapse'].includes(a.type)) {
-    a.stuck = true;
-    a.end = now + (a.type === 'flare' ? 0.5 : 0.8);
+  if (a.type==='flare') {
+    a.stuck=true;
+    a.end=now+.5;
     return false;
   }
   if(a.type==='paint' || a.type==='bomblet'){
@@ -214,7 +216,9 @@ export const projectileColor = {
   slow: '#70eedf',
 };
 export function accessHint(name, charge, bounces, marks) {
-  if (name === '우주 장벽') return '좌클릭 별 배치 · C/Q/E 별 활성화 · 우클릭 장벽 선택 · 두 지점 지정';
+  if(['섬광등','진형 붕괴'].includes(name))return '좌클릭 발사 · 우클릭 공중 고정 · 스킬 키로 조준점에 유도';
+  if(name==='일체 정지')return '좌클릭 발사 · 시선으로 유도 · 다시 좌클릭해 부유장 전개';
+  if (name === '우주 장벽') return 'WASD 이동 · Space/Ctrl 높이 · 좌클릭 별 · C/Q/E 활성화 · F 회수 · 우클릭 장벽 두 지점';
   if(name==='포탑')return '좌클릭 설치 · E 방향 반전 · 설치 후 E를 길게 눌러 회수';
   if(name==='알람봇')return '좌클릭 설치 · 설치 후 Q를 길게 눌러 회수';
   if(name==='면도날 덩굴' || name==='나노스웜')return '좌클릭 투척 · 설치물을 조준하고 F로 작동';

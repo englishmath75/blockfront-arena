@@ -1,12 +1,13 @@
 import timing from './ability-times.json' with { type: 'json' };
 import * as T from 'three';
+import {kineticPull} from './agent-utilities.js';
 
 const zones = {
   fragment: { radius: 4, hue: '#ad84ff', delay: 0.5, count: 4, gap: 1 },
   mpulse: { radius: 5.5, hue: '#b091ff', delay: 1, count: 3, gap: 2 },
   storm: { radius: 6, hue: '#55dded', delay: 0.6 },
   saturate: { radius: 6, hue: '#ffe793', delay: 0.6 },
-  collapse: { radius: 6, hue: '#69bee0', delay: 0.15 },
+  collapse: { radius: 6, hue: '#69bee0', delay: 0.8 },
   suspension: { radius: 7, hue: '#5bd2f1', delay: 0.1 },
   knife: { radius: 15, hue: '#ad85ff', delay: 1 },
   guided: { radius: 4.5, hue: '#ff9956', delay: 1.25, count: 3, gap: 0.8 },
@@ -57,10 +58,10 @@ export function tickZone(d, owner, ctx,dt=0) {
   if (!owner || !d.pulses || t < d.next) return;
   d.pulses--;
   d.next += d.gap;
-  if(d.kind==='mpulse' || d.kind==='storm')d.cueAt=t;
-  if (d.kind !== 'well' || d.pulses % 5 === 0) ctx.ring(d, owner, d.radius);
+  if(d.kind==='mpulse' || d.kind==='storm' || ['collapse','suspension','nova','well'].includes(d.kind) && d.cueAt==null)d.cueAt=t;
+  if (!['well','nova','collapse','suspension'].includes(d.kind) || d.pulses % 5 === 0) ctx.ring(d, owner, d.radius);
   for (const o of ctx.players) {
-    if (o.down) continue;
+    if (o.down || o.evolution && !d.heal) continue;
     const dx = d.x - o.x,
       dz = d.z - o.z,
       r = Math.hypot(dx, dz),
@@ -90,8 +91,9 @@ export function tickZone(d, owner, ctx,dt=0) {
     else if (d.kind === 'suspension') {
       o.vy = 4.2;
       o.suspendedUntil = t + 4;
-      o.holdY = o.y + 1.2;
-    } else if (d.kind === 'collapse' || d.kind === 'well') {
+      o.holdY=ctx.liftHeight?.(o,1.65)??o.y+1.65;
+    } else if(d.kind==='collapse')kineticPull(d,o,ctx);
+    else if (d.kind === 'well') {
       const step = Math.min(r, d.kind === 'well' ? 0.45 : 3.5);
       if (r > 0.1) ctx.move(o, (dx / r) * step, (dz / r) * step);
       if (d.kind === 'well' && !d.pulses) o.vulnerable = t + 2.5;

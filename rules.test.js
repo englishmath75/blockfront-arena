@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import {toxicPath,toxinContact,applyToxin,separatedByDivide,kineticPull} from './agent-utilities.js';
+import {visionDistance} from './field-effects.js';
 import {tickNest,tickHunterBeam,owlPing,domeBoundary} from './deployed-fields.js';
 import test from 'node:test';
 import fs from 'node:fs';
@@ -22,14 +24,14 @@ import { castField, tickField } from './agent-fields.js';
 import { createZone, tickZone, shieldHit } from './ability-zones.js';
 import {strikePath,insideStrip,sensorArea,tabletRange} from './strike-path.js';
 import {wirePath} from './nanowire.js';
-import {worldSculpture} from './ability-sculptures.js';
+import {worldSculpture,sculptedHand} from './ability-sculptures.js';
 import {Box3} from 'three';
 import { Group, Ray, Vector3 } from 'three';
 import { parseCrosshair } from './crosshair.js';
 import { scopeLevels,zoomFov } from './optics.js';
 import { anchorPair,crossesWire } from './trapwire.js';
 import { meleeTracks } from './melee-motion.js';
-import { WEAPONS as armory,spreadFor as accuracy } from './rules.js';
+import { AGENTS,WEAPONS as armory,spreadFor as accuracy } from './rules.js';
 import { PlayerRoom } from './room-client.js';
 import { minimumPlayers } from './room-server.js';
 import { muzzleSocket } from './skin-outline.js';
@@ -457,6 +459,36 @@ test('a planted core keeps the round alive after the attackers are eliminated', 
   assert.equal(decideRound({ armed: true, detonate: 5, attackAlive: 0, defendAlive: 2 }), null);
   assert.equal(decideRound({ armed: true, detonate: 0, attackAlive: 0, defendAlive: 2 })[0], 'attack');
   assert.equal(decideRound({ armed: false, clock: 0, attackAlive: 2, defendAlive: 2 })[0], 'defend');
+});
+test('toxic screen follows elevations, blocks sight across the ribbon, and shares decay with the orb',()=>{
+  const path=toxicPath({x:0,y:0,z:0,yaw:0},(x,z)=>z<-3?1:0);
+  assert.equal(path.length,30);assert.equal(path[4][1],1);
+  const wall={type:'toxinWall',kind:'toxinWall',path,h:4.5,born:0,start:.18,end:15};
+  const who={x:0,z:-4,y:1,height:1.53,hp:50};
+  assert(toxinContact(wall,who));
+  const ray=new Ray(new Vector3(-2,2,-4),new Vector3(1,0,0));
+  assert.equal(visionDistance(ray,wall,.1,8),8);assert.equal(visionDistance(ray,wall,2,8),2);
+  applyToxin(who,2,.02);const hp=who.hp;applyToxin(who,2,.02);assert.equal(who.hp,hp);
+  applyToxin(who,2.02,10);assert.equal(who.hp,1);
+});
+test('the divide mutes only across its active plane and collision applies Displacement concussion',()=>{
+  const wall={kind:'divide',x:0,z:0,angle:0,start:1,end:9};
+  const one={x:1,y:0,z:1},two={x:1,y:0,z:-1};
+  assert(separatedByDivide(one,two,[wall],3));assert(!separatedByDivide(one,two,[wall],.8));
+  assert(!separatedByDivide(one,{x:0,z:4},[wall],3));
+  kineticPull({x:3,z:1},one,{players:[one],time:4,move(p,dx){p.x=Math.min(1.4,p.x+dx);}});
+  assert.equal(one.tag,5.4);
+});
+test('the five agent kits expose twenty distinct rigid props and sixty playable phase cues',()=>{
+  for(const [name,agent] of Object.entries(AGENTS).slice(15,20)){
+    for(const skill of agent.gear){
+      const rig=sculptedHand(skill);assert(rig?.children.length,name+' '+skill);
+      for(const phase of ['equip','cast','impact']){
+        const file=abilitySounds[skill]?.[phase];assert(file,skill+' '+phase);
+        assert.equal(fs.readFileSync(new URL('./public/agent-sfx/'+file,import.meta.url)).toString('ascii',0,4),'OggS');
+      }
+    }
+  }
 });
 test('every competitive map has passable spawns and sites on its connected floor', () => {
   for (const map of MAPS) {

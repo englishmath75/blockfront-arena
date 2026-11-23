@@ -150,9 +150,64 @@ function instrument(kind,part,strand){
     if(radio)for(const s of [-1,1])part(box,steel,s*.043,0,0,.015,.042,.08,0,0,s*.22);
   }
 }
+const focusSets=[
+  ['뱀 이빨','독성 연기','독성 장막','독사의 구덩이'],
+  ['격류','섬광등','진형 붕괴','일체 정지'],
+  ['불길','뜨거운 손','커브볼','역습'],
+  ['지름길','목조르기','요격기','진화'],
+  ['중력의 샘','신성 파동','성운','우주 장벽']
+];
+const focus=Object.fromEntries(focusSets.flatMap((set,g)=>set.map((name,i)=>[name,{g,i}])));
+const focusLeft=new Set(['뱀 이빨','독성 장막','독사의 구덩이','격류','섬광등','불길','뜨거운 손','지름길','진화',...focusSets[4]]);
+const shell=metal(0x253a38,.79),petrol=metal(0x12282c,.76),jet=metal(0x141222,.73);
+const hot=light(0xff571b),sun=light(0xffdb89),orchid=light(0xf284ff),astrum=light(0xffcb6b);
+const arcBand=new T.TorusGeometry(1,.055,8,26,Math.PI*1.38);
+const crystal=new T.OctahedronGeometry(1),teal=light(0x34d9cf);
+crystal.setIndex(Array.from({length:crystal.attributes.position.count},(_,i)=>i));
+function focusProp(kind,part,strand){
+  const {g,i}=focus[kind];
+  const loop=(mat,r,y,tilt)=>part(ring,mat,0,y,0,r,r,r,tilt,.2*i);
+  if(g===0){
+    const can=i===1,r=can?.048:.034;
+    part(sphere,shell,0,0,0,r,.042,r*1.48);
+    for(let j=0;j<3;j++)part(ring,j===1?lime:steel,0,0,(j-1)*.029,r,r,r);
+    for(const s of [-1,1])part(box,lime,s*r*.71,.027,0,.009,.014,.058);
+    if(i===2)for(const s of [-1,1])part(box,shell,s*.036,0,-.035,.026,.03,.094,0,s*.13);
+  }else if(g===1){
+    const r=[.023,.037,.048,.059][i];
+    part(i===1?sphere:crystal,i===0?orchid:purple,0,0,0,r,i===1?r*1.35:r,r);
+    part(crystal,orchid,0,i===1?.035:.006,0,r*.61,r*.92,r*.61);
+    for(let n=0;n<(i===1?2:3);n++){
+      const radius=r*(1.2+n*.14);part(arcBand,n%2?violet:lightIris,0,0,0,radius,radius,radius,.75+n*1.08,n*.8,n);
+    }
+    if(i===0)for(let n=0;n<9;n++)part(sphere,n%3?purple:orchid,.04*Math.cos(n*.70),-.034,.04*Math.sin(n*.70),.011,.011,.011);
+  }else if(g===2){
+    const r=i===2?.037:i===3?.027:.038;
+    part(sphere,i===2?jet:hot,0,0,0,r,r,r);
+    for(let n=0;n<(i===2?3:7);n++){
+      const a=n*2.39996, c=Math.cos(a),s=Math.sin(a);
+      if(i===2)loop(n===1?sun:hot,r*1.26,0,.28+n*1.10);
+      else strand(n%3?hot:sun,[[c*r,-.022,s*r],[c*r*1.1,.02,s*r*1.1],[Math.cos(a+.9)*r,.046,Math.sin(a+.9)*r],[c*.015,.069+.023*Math.sin(n*3.4),s*.015]],n%3?.006:.004);
+    }
+  }else if(g===3){
+    const r=[.042,.047,.056,.045][i];
+    part(sphere,petrol,0,0,0,r,r*(i===2?1.35:.88),r);
+    for(let n=0;n<7;n++){
+      const a=n*.898;
+      const pts=Array.from({length:7},(_,j)=>{const u=j/6,phi=a+u*(i===1?2.1:1.24),w=r*(.35+.85*Math.sin(u*Math.PI));return [Math.cos(phi)*w,(u-.5)*(i===2?.145:.108),Math.sin(phi)*w]});
+      strand(n%2?teal:steel,pts,n%2?.003:.006);
+    }
+    if(i===2)for(let n=0;n<3;n++){const a=n*2.094;part(spike,petrol,.047*Math.cos(a),-.024,.047*Math.sin(a),.019,.088,.019,0,0,.49);}
+  }else{
+    part(crystal,astrum,0,0,0,.017,.031,.017);
+    loop(gold,.043,0,.39+i*.28);loop(violet,.048,0,1.39);
+    for(let n=0;n<5+i;n++){const a=n*2.39996;part(crystal,n%2?astrum:violet,.049*Math.cos(a),.021*Math.sin(a*2),.049*Math.sin(a),.004,.009,.004);}
+  }
+}
 function prototype(kind){
   if(!cache.has(kind))cache.set(kind,bake((part,strand)=>{
-    if(instruments.has(kind))instrument(kind,part,strand);
+    if(focus[kind])focusProp(kind,part,strand);
+    else if(instruments.has(kind))instrument(kind,part,strand);
     else if(['재생','추적자','파편/탄','무력화/명령'].includes(kind))carvedTrinket(kind,part,strand);
     else if(['귀체','포박','추적귀','황혼'].includes(kind))nightmare(kind,part,strand);
     else if(['여진','섬광 폭발','균열','지진 강타'].includes(kind))bracer(kind,part);
@@ -167,16 +222,18 @@ function prototype(kind){
 }
 const held=new Set(['귀체','포박','추적귀','황혼','여진','섬광 폭발','균열','지진 강타','특별 배송','유도 일제 사격','아마겟돈']);
 export function sculptedHand(skill){
-  if(!held.has(skill) && !instruments.has(skill) && !['재생','추적자','파편/탄','무력화/명령'].includes(skill))return;
+  if(!focus[skill] && !held.has(skill) && !instruments.has(skill) && !['재생','추적자','파편/탄','무력화/명령'].includes(skill))return;
   const root=new T.Group(),prop=prototype(skill).clone();root.add(prop);root.userData.authoredSkill=true;
-  const floating=['귀체','포박','추적귀','황혼','추적자','재생'].includes(skill);
+  const fx=focus[skill];
+  if(fx?.g===1)prop.scale.setScalar(fx.i===3?.80:.71);
+  const floating=(focus[skill]?.g??0)>0 || ['귀체','포박','추적귀','황혼','추적자','재생'].includes(skill);
   const leds=skill==='M-파동'?prop.children.filter(m=>m.material===amber):[];
   root.userData.animate=(time,tag,progress,heal)=>{
     for(const led of leds)led.material=heal?aqua:amber;
     if(instruments.has(skill) && !['만조','해만','심판'].includes(skill))prop.rotation.y=.10*Math.sin(time*2.8);
     const casting=['throw','place','short throw','cast','fire'].includes(tag);
     prop.visible=!(floating && casting && progress>.43);
-    if(floating){prop.rotation.y=.28*Math.sin(time*2.5);prop.position.y=.035+.005*Math.sin(time*4);}
+    if(floating){const g=focus[skill]?.g;prop.rotation.y=g===2?time*1.9:g===4?time*.92:.28*Math.sin(time*2.5);prop.position.y=.025+.005*Math.sin(time*4);if(g===2)prop.scale.y=1+.07*Math.sin(time*12);}
   };
   return root;
 }
@@ -185,7 +242,8 @@ export function authoredHandling(rig,prop,eye,skill){
   const shade=['귀체','추적귀','포박','황혼','추적자','재생'].includes(skill);
   const brace=['여진','균열','섬광 폭발','지진 강타'].includes(skill),drone=skill==='잠입 드론';
   const tablet=['유도 일제 사격','아마겟돈','웨이브폼','만조','해만','심판','화음','요동치는 베이스'].includes(skill);
-  const wrist=brace && skill==='섬광 폭발' || tablet || skill==='파편/탄' || skill==='재생'?'L':'R';
+  const pose=focus[skill];
+  const wrist=focusLeft.has(skill) || brace && skill==='섬광 폭발' || tablet || skill==='파편/탄' || skill==='재생'?'L':'R';
   const hand=rig.getObjectByName(wrist+'_Hand'),elbow=rig.getObjectByName(wrist+'_Elbow');
   if(!hand || !elbow)return;
   const joints=[],fingers=[];
@@ -215,8 +273,28 @@ export function authoredHandling(rig,prop,eye,skill){
     const palmDepth=shade?.54:drone?.48:brace?.52:wristTool?.52:.45;
     target.copy(at).add(direction.set(palmDepth+release*.13,(shade?-.095:-.15)-lower+.055*release,side*(wristTool?.12:tablet?.225:.18)));
     other.copy(at).add(direction.set(.45+.052*release,-.19-lower,-side*(tablet?.24:drone?.095:.21)));
+    if(pose){
+      const {g,i}=pose;
+      const paired=skill==='일체 정지' || skill==='역습' || skill==='독사의 구덩이';
+      const wind=casting?Math.sin(Math.PI*Math.min(1,ratio/.4)):0;
+      target.y+=(g===2 && wrist==='L'?.087:g===2?.012:g===1?.041:.023)+release*.04;
+      if(g===2 && wrist==='L'){target.z-=side*.055;target.x+=.038;}
+      target.x+=release*(i===3?.045:.13)-wind*.065;
+      target.z+=side*(paired?-.04:.021);
+      other.z+=side*(paired?.061:g===0?.065:0);other.y+=paired?.068:.009;
+      other.x+=paired?release*.11:.025;
+    }
     if(wrist==='R'){right(target,rightPole);left(other,leftPole);}else{left(target,leftPole);right(other,rightPole);}
-    for(const f of fingers)f.rotateX(shade?-.16:drone?.09:-.04);
+    for(const f of fingers){
+      let curl=shade?-.16:drone?.09:-.04;
+      if(pose){
+        const grip=(f.name.startsWith(wrist+'_') || skill==='역습');
+        const pinching=['섬광등','커브볼','신성 파동','지름길'].includes(skill);
+        curl=grip?(skill==='역습'?.37:pinching && /Thumb|Index/.test(f.name)?.21:/Index|Middle/.test(f.name)?-.15:.12):.065;
+        curl-=release*.16;
+      }
+      f.rotateX(curl);
+    }
     hand.getWorldPosition(target);
     if(brace || tablet){
       elbow.getWorldPosition(other);target.lerp(other,brace?.35:.27);

@@ -191,7 +191,7 @@ export function armory(p, id, free) {
     Object.entries(ARMOR)
       .map(([key, v]) => '<button data-buy="' + key + '">' + v.name + ' · ' + v.cost + ' ₡</button>')
       .join('') +
-    AGENTS[p.agent].gear
+    (p.agent==='아스트라'?'<button data-buy="skill-0">별 '+p.stars+'/5 · 150 ₡</button>':AGENTS[p.agent].gear
       .slice(0, 3)
       .map(
         (n, i) =>
@@ -205,7 +205,7 @@ export function armory(p, id, free) {
           (AGENTS[p.agent].economy[i].cost ? '충전 ' + AGENTS[p.agent].economy[i].cost + ' ₡' : '기본 스킬') +
           '</button>',
       )
-      .join('') +
+      .join('')) +
     '</div>'
   );
 }

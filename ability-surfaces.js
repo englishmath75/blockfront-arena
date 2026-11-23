@@ -15,7 +15,32 @@ float line(float p,float w){return 1.-smoothstep(w,w+max(.008,fwidth(p)),abs(p))
 float filament(float p,float w){return line(fract(p+.5)-.5,w);}
 void main(){
   vec2 v=uv0;vec2 p=v*2.-1.;float r=length(p),a=0.;vec3 c;
-  if(style<=3.){
+  if(style>=40.){
+    float phi=atan(p.y,p.x);
+    if(style==40. || style==41.){
+      float turf=sin(p.x*9.+sin(p.y*13.+t*2.)*1.7+t)*cos(p.y*11.-t*2.);
+      float cells=filament(r*4.+turf*.38-t*.54,.06);
+      c=style==40.?mix(vec3(.035,.32,.055),vec3(.64,1.,.12),.45+.36*turf+.18*cells):
+        mix(vec3(.83,.075,.003),vec3(1.,.88,.18),.39+.35*turf+.19*cells);
+      a=(1.-smoothstep(.82+.05*turf,1.,r))*(.84+.15*cells);
+    }else if(style==42. || style==43. || style==44.){
+      float flow=sin(v.x*24.+sin(v.y*14.+t)*2.+v.y*8.-t*1.4);
+      float veins=filament(v.y*4.+flow*.24-t*.17,.035);
+      c=style==42.?mix(vec3(.025,.17,.045),vec3(.35,.78,.045),.49+.32*flow+.18*veins):
+        mix(vec3(.105,.036,.22),vec3(.57,.27,.79),.43+.34*flow+.19*veins);
+      float stars=pow(max(0.,sin(v.x*(style==44.?1300.:122.)+cos(v.y*109.))*sin(v.y*157.+v.x*52.)),24.);
+      if(style!=42.)c+=vec3(1.,.79,.47)*stars;a=.99;
+    }else{
+      float wind=style==45.?-t*2.:t*1.4;
+      float spiral=filament(r*3.+phi*.477+wind*.43+sin(r*11.-t)*.21,.075);
+      float beat=filament(r*2.-front*2.,.042),rim=line(r-.94,.026);
+      if(style==45.)c=mix(vec3(.12,.017,.27),vec3(.97,.70,.33),spiral);
+      else if(style==46.)c=mix(vec3(.44,.034,.61),vec3(.99,.77,1.),beat);
+      else if(style==47.)c=mix(vec3(.018,.083,.11),vec3(.11,.99,.96),spiral);
+      else c=mix(vec3(.79,.087,.006),vec3(1.,.86,.20),max(spiral,rim));
+      a=step(r,1.)*(.10+.46*spiral+.51*beat+.62*rim);
+    }
+  }else if(style<=3.){
     float lead=front-v.y;
     float skew=sin(p.x*11.+floor(v.y*18.)*2.3)*.09;
     float cracks=filament(p.x*5.+abs(fract(v.y*13.)-.5)*2.+skew,.035);
@@ -140,6 +165,15 @@ void main(){
 }`;
 const waveStyles={'균열':1,'지진 강타':2,'황혼':3};
 function surfaceStyle(d){
+  if(d.acid)return 40;
+  if(d.phoenix && d.type==='fire')return 41;
+  if(d.kind==='toxinPit' || d.kind==='toxinCloud')return 42;
+  if(d.kind==='nebula')return 43;
+  if(d.kind==='divide')return 44;
+  if(d.kind==='well' || d.kind==='nova')return 45;
+  if(['collapse','suspension','flowAnchor'].includes(d.kind) || d.kind==='flashBloom' && d.name==='섬광등')return 46;
+  if(d.kind==='vetoField' || d.kind==='vetoFold')return 47;
+  if(['phoenixMark','phoenixEcho','flashBloom'].includes(d.kind))return 48;
   if(d.type==='hunterBeam')return 21;
   if(d.type==='shockBurst')return 22;
   if(d.kind==='mpulse')return d.heal?24:23;
@@ -263,7 +297,19 @@ export function presentAbility(d,now){
   const mesh=d.mesh,kind=d.kind;
   if(kind==='lockdown')lockdownCountdown(d,now);
   if(kind==='shearCollider'){mesh.visible=false;return true;}
+  if(kind==='poisonLine' && d.path?.length){
+    if(!mesh.userData.pucks){
+      const pucks=new T.InstancedMesh(nanoShard,alloy,d.path.length);
+      for(const [i,[x,y,z]] of d.path.entries()){node.position.set(x,y+.07,z);node.scale.set(.118,.075,.118);node.rotation.set(0,i*.4,0);node.updateMatrix();pucks.setMatrixAt(i,node.matrix);}
+      mesh.material.visible=false;mesh.add(pucks);mesh.userData.pucks=pucks;mesh.userData.disposeField=()=>pucks.dispose();
+    }
+    mesh.scale.setScalar(1);mesh.position.set(0,0,0);return true;
+  }
   let sculpt,span,height;
+  if(kind==='star'){sculpt='성운';span=.47;height=.16;}
+  if(['passage','vetoTrap','interceptor','poisonOrb'].includes(kind)){
+    sculpt=d.name;span=kind==='interceptor'?.76:kind==='passage'?.65:kind==='vetoTrap'?.36:.28;height=span*.42;
+  }
   if(d.type==='haunt'){sculpt='귀체';span=.72;height=.39;}
   else if(kind==='prowler'){sculpt='추적귀';span=1.1;height=.37;}
   else if(kind==='seeker'){sculpt='추적자';span=.61;height=.42;}
@@ -274,8 +320,14 @@ export function presentAbility(d,now){
       mesh.material.visible=false;mesh.scale.setScalar(1);
       mesh.userData.sculpture=worldSculpture(sculpt,span);mesh.add(mesh.userData.sculpture);
     }
-    const at=now-d.born,part=mesh.userData.sculpture;
+    const at=now-d.born,part=mesh.userData.sculpture;mesh.visible=true;
     mesh.position.set(d.x,d.y+height,d.z);mesh.rotation.y=d.angle??0;
+    if(kind==='star' || kind==='passage'){part.rotation.y=at*(kind==='star'?1.12:.66);part.position.y=.037*Math.sin(at*3.4);}
+    if(kind==='interceptor' && d.on){part.rotation.y=at*2.5;
+      if(!mesh.userData.beam){const beam=new T.Mesh(wall,new T.MeshBasicMaterial({color:0x91ffff}));mesh.add(beam);mesh.userData.beam=beam;mesh.userData.disposeField=()=>beam.material.dispose();}
+      const beam=mesh.userData.beam;beam.visible=!!d.beam && now-d.cueAt<.20;
+      if(beam.visible){axis.fromArray(d.beam);mesh.worldToLocal(axis);beam.scale.set(.036,.036,axis.length());beam.position.copy(axis).multiplyScalar(.5);beam.quaternion.setFromUnitVectors(new T.Vector3(0,0,1),axis.normalize());}
+    }
     if(kind==='prowler'){part.position.y=.04*Math.sin(at*15);part.rotation.z=.055*Math.sin(at*13);}
     if(kind==='seeker'){part.position.y=.12*Math.sin(at*5);part.rotation.y=at*2.7;}
     if(d.type==='haunt'){part.position.y=.46*saturate(at/.65,0,1);part.rotation.y=.3*Math.sin(at*3);}
@@ -289,6 +341,7 @@ export function presentAbility(d,now){
     mesh.geometry=style===15 || style===19?cylinder:style<=3 || [6,12,17,18].includes(style)?floor:style===4 || style===11?wall:orb;
     if(kind==='rose')for(const child of mesh.children)child.visible=false;
     if(style>=21)mesh.geometry=style===25 && d.type==='groundWave'?bassArc:style===21 || kind==='harmony'?cylinder:[23,24,29,30,31].includes(style)?floor:[25,28,32].includes(style)?wall:orb;
+    if(style>=40)mesh.geometry=[42,43].includes(style)?orb:style===44?wall:floor;
     if(style<=3){
       const face=new T.Mesh(curtain,makeMaterial(style===3?13:14));mesh.add(face);mesh.userData.face=face;
       mesh.userData.disposeField=()=>face.material.dispose();
@@ -297,6 +350,21 @@ export function presentAbility(d,now){
   const uniforms=mesh.material.uniforms,age=now-d.born,dt=now-(d.start??d.born);
   uniforms.t.value=now;uniforms.age.value=age;uniforms.alpha.value=saturate((d.end-now)*8,0,1);
   mesh.visible=true;
+  if(style>=40){
+    const span=d.radius?2*d.radius:d.w;
+    uniforms.front.value=dt<0?0:dt%1;
+    if(style===42 || style===43){
+      const k=T.MathUtils.clamp(dt/(kind==='toxinPit'?2:.23),.001,1);mesh.visible=dt>=0;
+      mesh.position.set(d.x,d.y+d.h*k*.5,d.z);mesh.scale.set(d.w*k,d.h*k,d.d*k);
+    }else if(style===44){
+      const k=T.MathUtils.clamp((dt+1)/1,.001,1);mesh.position.set(d.x,d.y+d.h*k*.5,d.z);mesh.scale.set(d.w,d.h*k,d.d);mesh.rotation.y=d.angle;
+    }else{
+      const burst=kind==='flashBloom' || kind==='phoenixEcho',k=burst?T.MathUtils.clamp(age/(d.end-d.born),.1,1):1;
+      mesh.scale.set(span*k,1,(d.radius?span:d.d)*k);mesh.position.set(d.x,d.y+.055,d.z);
+      if(kind==='flashBloom'){mesh.geometry=orb;mesh.scale.setScalar(span*k);}
+    }
+    return true;
+  }
   if(style>=21){presentNew(d,mesh,style,now);return true;}
   if(style>=15 && style<=19){
     const q=saturate(age/Math.max(.01,d.end-d.born),0,1);
