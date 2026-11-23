@@ -9,6 +9,7 @@ import {gripContact} from './grip-contact.js';
 import { bindFingers } from './finger-pose.js';
 import { skinArticulation } from './skin-articulation.js';
 import { abilityProp } from './skill-prop.js';
+import {authoredHandling,worldSculpture} from './ability-sculptures.js';
 import { usesBow, bowPresentation } from './sova-bow.js';
 import { unpack } from './compressed.js';
 import * as T from 'three';
@@ -202,8 +203,10 @@ export function character(parent, name) {
         right = body.getObjectByName('R_Thigh');
       })
       .catch(() => {});
-  const animate = (time, stride, revealed = false, weaponKey, skin, attack, pitch=0) => {
-    const stamp = (weaponKey ?? '') + '/' + (skin?.profileKey ?? '');
+  const castAgents=new Set(['게코','페이드','브리치','데드록','테호']);
+  const animate = (time, stride, revealed = false, weaponKey, skin, attack, pitch=0,skill) => {
+    const utility=castAgents.has(name)?skill:null;
+    const stamp = utility?'skill/'+utility:(weaponKey ?? '') + '/' + (skin?.profileKey ?? '');
     if (mixer) {
       if (grip && weaponKey && selected !== stamp) {
         selected = stamp;
@@ -211,7 +214,14 @@ export function character(parent, name) {
         disposeHeld = null;
         held?.removeFromParent();
         held = null;
-        if (library.models[weaponKey])
+        if(utility){
+          held=new T.Group();grip.add(held);
+          const scale=grip.getWorldScale(new T.Vector3());
+          held.scale.set(1/scale.x,1/scale.y,1/scale.z);
+          const slug=utilityItems[utility],span=heldSpans[utility]??.21;
+          if(slug)attachProp(held,slug,span);
+          else held.add(worldSculpture(utility,span));
+        }else if (library.models[weaponKey])
           void asset(weaponKey)
             .then(async (g) => {
               if (selected !== stamp || !parent.parent) return;
@@ -349,6 +359,8 @@ export function previewWeapon(canvas,gun,skin){
     for(let i=0;i<8 && ticket===viewer.ticket;i++){await new Promise(r=>setTimeout(r,240));draw()}
   })().catch(()=>{if(viewer.ticket===ticket)canvas.textContent='모델을 불러올 수 없습니다.'});
 }
+const heldSpans={'귀체':.20,'포박':.17,'추적귀':.24,'황혼':.20,'잠입 드론':.27,'특별 배송':.19,
+  '소멸':.41,'장벽망':.22,'음향 센서':.19,'중력그물':.17,'지원봇':.26,'기절봇':.24,'요동봇':.26,'폭파봇 지옥':.19};
 const utilityItems = {
   '잠입 드론': 'stealth-drone',
   '올빼미 드론': 'owl-drone',
@@ -409,11 +421,12 @@ export async function warmLoadout(items){
 }
 // Prepare the deployed or flying meshes for the agents actually in this room.
 export async function warmWorldProps(world,skills,isCurrent){
-  const fieldModels={'지원봇':'wingman','기절봇':'dizzy','인도하는 빛':'guiding-light','정찰자':'trailblazer'};
+  const fieldModels={'지원봇':'wingman','기절봇':'dizzy','요동봇':'thrash','인도하는 빛':'guiding-light','정찰자':'trailblazer'};
   const airborne=new Set(['recon-bolt','shock-dart','stealth-drone','owl-drone','spycam','guiding-light',
-    'trailblazer','paintshell','zeropoint','blast-pack','flashdrive']);
+    'trailblazer','paintshell','zeropoint','blast-pack','flashdrive','thrash','mosh-pit','gravnet','barrier-mesh']);
   const ids=new Set(skills.map(name=>fieldModels[name]??utilityItems[name])
     .filter(id=>library.models[id] && (fieldProp(id) || airborne.has(id))));
+  for(const name of skills)if(heldSpans[name] && library.models[utilityItems[name]])ids.add(utilityItems[name]);
   const keep=new Map();world.scene.userData.propAssets=keep;
   const staging=new T.Scene();staging.fog=world.scene.fog;
   for(const light of world.scene.children)if(light.isLight)staging.add(light.clone());
@@ -562,7 +575,7 @@ export function firstPerson() {
         ? Array.from({ length: 5 }, (_, i) => weapon.getObjectByName('Knife' + (i + 1)))
         : null;
     state = { stamp, rig, weapon, eye, muzzle, spark, knives, disposeSkin, armMixer, gunMixer, poses,
-      gesture:skill && !native?.idle && !usesBow(skill)?skillHandling(rig,weapon,eye,skill):null,
+      gesture:skill && !native?.idle && !usesBow(skill)?authoredHandling(rig,weapon,eye,skill)??skillHandling(rig,weapon,eye,skill):null,
       bow:usesBow(skill)?bowPresentation(rig,weapon,skill,eye):null,
       articulation:skill ? null : skinArticulation(rig,weapon,gun,skin,actions,fallback),
       core:skill ? null : coreHandling(rig,weapon),

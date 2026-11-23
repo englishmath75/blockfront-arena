@@ -1,5 +1,6 @@
 import * as T from 'three';
 import { fieldReach } from './ground-fields.js';
+import {warmAbilitySurface} from './ability-surfaces.js';
 const ball = new T.SphereGeometry(0.5, 40, 28),
   flat = new T.CylinderGeometry(0.5, 0.5, 1, 48),
   ring = new T.SphereGeometry(0.5, 28, 16),
@@ -131,6 +132,7 @@ export async function warmFieldMaterials(world) {
     const mesh=deviceMesh(type,0x8fd9ef,1,1,1);
     staging.add(mesh);
   }
+  staging.add(warmAbilitySurface());
   // The registry keeps one instance of each program alive for this map.
   // Releasing the final material would force the next cast to compile it again.
   world.fieldMaterials.push(...staging.children.map(m=>m.material));

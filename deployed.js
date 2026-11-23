@@ -20,7 +20,7 @@ export const deviceKind = (name) => devices[name];
 export const reusable = (name) => devices[name] && (devices[name]==='gatecrash' || !remoteInteract.includes(devices[name]));
 export function targetedDevice(player, list, ray) {
   return list
-    .filter((d) => d.owner === player.id && remoteInteract.includes(d.kind) && d.end > 0)
+    .filter((d) => d.owner === player.id && (remoteInteract.includes(d.kind) || d.kind==='sonic-sensor' && !d.triggerAt && Math.hypot(d.x-player.x,d.z-player.z)<=27) && d.end > 0)
     .map((d) => {
       const target = new T.Vector3(d.x, d.y + 0.2, d.z);
       return { d, dist: ray.distanceToPoint(target), depth: target.sub(ray.origin).dot(ray.direction) };

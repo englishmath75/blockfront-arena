@@ -1,10 +1,11 @@
 import { crossesWire } from './trapwire.js';
+import {sensorArea} from './strike-path.js';
 import timing from './ability-times.json' with { type: 'json' };
 
 // Width and reach are in map metres. Windup and effect durations use the
 // corresponding ability record; pulse intervals are independent of frame rate.
 const waves = {
-  균열: { color: '#ffc173', effect: 'concuss', width: 7, speed: 160 },
+  균열: { color: '#ffc173', effect: 'concuss', width: 8, speed: 160 },
   '지진 강타': { color: '#f59445', effect: 'quake', width: 18, reach: 32, speed: 18 },
   황혼: { color: '#8d719d', effect: 'terror', width: 20, reach: 40, speed: 24 },
   '초점 교차': { color: '#ffe5a2', effect: 'hinder', width: 13.5, reach: 36, speed: 54 },
@@ -50,8 +51,8 @@ export function castField(name, p, ground, params, ctx) {
     wave = waves[name],
     helper = helpers[name];
   if (wave) {
-    const reach = wave.reach ?? 8 + 40 * Math.min(1, Math.max(0, Number(params.charge) || 0));
-    const offset = wave.effect==='hinder' ? stat['distance between waylay and aoe'] : 0;
+    const reach = wave.reach ?? 8 + 48 * Math.min(1, Math.max(0, Number(params.charge) || 0));
+    const offset = stat['distance between breach and aoe'] ?? stat['distance between waylay and aoe'] ?? 0;
     const windup = wave.effect==='hinder' ? stat['channel time']+stat.windup : stat['windup time'] ?? stat['channel time'] ?? stat['cast time'] ?? 0.6;
     const d = add(
       'groundWave',
@@ -81,7 +82,7 @@ export function castField(name, p, ground, params, ctx) {
     const [kind, hp, lifetime, speed, color] = helper;
     const deploy = stat['deploy time'] ?? stat['deployment duration'] ?? 0.15;
     const at = kind==='trapwire' ? params.wire && {x:params.wire.start[0],y:params.wire.start[1],z:params.wire.start[2]} : speed ? p : ground;
-    if (!Number.isFinite(at?.y)) return false;
+    if (!Number.isFinite(at?.y) || (kind==='sonic-sensor' && !params.mount)) return false;
     let objective;
     if (kind === 'wingman' && params.alt) {
       if (core.state === 'planted' && !ctx.attacking(p))
@@ -101,15 +102,15 @@ export function castField(name, p, ground, params, ctx) {
       const airborne = kind === 'dizzy';
       const d = add(
         'companion',
-        at.x,
-        at.z,
+        params.mount?.x ?? at.x,
+        params.mount?.z ?? at.z,
         deploy + lifetime + (objective ? 12 : 0),
         0.62,
         0.62,
         0.62,
         color,
         p,
-        at.y + (airborne ? p.height : 0),
+        params.mount?.y ?? at.y + (airborne ? p.height : 0),
       );
       Object.assign(d, {
         kind,
@@ -122,6 +123,8 @@ export function castField(name, p, ground, params, ctx) {
         objective,
         airborne,
         originY: d.y,
+        ...(airborne?{loft:Math.sin(p.pitch??0),speed:Math.max(1,7*Math.cos(p.pitch??0))}:{}),
+        ...(kind==='sonic-sensor'?{normal:params.mount.normal}:{}),
         ...(kind==='trapwire'?{wireEnd:params.wire.end}:{}),
       });
     }
@@ -184,14 +187,14 @@ export function tickField(d, owner, dt, ctx) {
         along = -dx * sin - dz * cos;
       const lateral=Math.abs(dx*cos-dz*sin);
       if (along<0 || along>d.reach || lateral>d.w/2) continue;
-      if (effect==='hinder' ? lateral>advance : along>advance+1) continue;
+      if (effect==='hinder' ? lateral>advance : effect!=='concuss' && along>advance+1) continue;
       if (effect==='bass' && (Math.hypot(dx,dz)>d.reach || lateral>along*Math.tan(Math.PI/6))) continue;
       if (effect === 'terror' && !hostile(owner, o)) continue;
       d.touched.push(o.id);
       if (effect === 'terror') {
         decay(o, 75, time + (stat['debuff duration'] ?? 8));
         o.deafUntil = time + 8;
-        o.trailEnd = time + 8;
+        o.trailEnd=time+stat['debuff duration'];o.trailOrigin=[d.originX,owner.y,d.originZ];o.trailTeam=owner.team;
       } else if (effect === 'bass') {
         for (let step=0;step<20;step++) move(o,-sin*.25,-cos*.25);
         o.deafUntil = o.slowUntil = time+stat['debuff duration'];
@@ -229,6 +232,17 @@ export function tickField(d, owner, dt, ctx) {
   }
   if (time < d.start || (owner.down && d.kind === 'turret')) return true;
   const close = players.filter((o) => !o.down && hostile(owner, o)).sort((a, b) => dist(a, d) - dist(b, d));
+  if(d.kind==='sonic-sensor'){
+    if(owner.down || owner.suppressed>time){delete d.triggerAt;return true;}
+    const noisy=p=>p.shot>0 && p.shot>time-.35 || p.reloading>time || p.channel || Math.abs(p.vy)>.8 ||
+      p.mode==='run' && Math.hypot(p.vx,p.vz)>2;
+    if(!d.triggerAt && close.some(p=>sensorArea(d,p) && noisy(p)))d.triggerAt=time+stat.windup;
+    if(d.triggerAt && time>=d.triggerAt){
+      for(const p of players)if(!p.down && sensorArea(d,p))p.tag=time+stat['concuss duration'];
+      ring(d,owner,4);d.end=time;
+    }
+    return true;
+  }
   if(d.kind==='trapwire' && d.wireEnd){
     if(d.triggerAt && time>=d.triggerAt){
       const victim=close.find(o=>o.id===d.caught);
@@ -247,6 +261,7 @@ export function tickField(d, owner, dt, ctx) {
   }
   const target =
     close.find((o) => o.id === d.targetId) ??
+    (d.kind==='prowler'?close.find(o=>o.trailEnd>time && o.trailTeam===owner.team && dist(o,d)<15 && visible(d,o,16)):null) ??
     close.find((o) => {
       if (
         !visible(
@@ -256,6 +271,7 @@ export function tickField(d, owner, dt, ctx) {
         )
       )
         return false;
+      if(d.kind==='wingman' && dist(o,d)>stat['max detection cone distance'] || d.kind==='prowler' && dist(o,d)>stat['detection distance'])return false;
       const forward = (o.x - d.x) * -Math.sin(d.angle) + (o.z - d.z) * -Math.cos(d.angle);
       return ['turret', 'wingman', 'prowler', 'boom-bot'].includes(d.kind) ? forward > 0 : true;
     });
@@ -287,7 +303,10 @@ export function tickField(d, owner, dt, ctx) {
     }
     d.angle = Math.atan2(d.x - to.x, d.z - to.z);
   } else if (d.kind === 'dizzy') {
-    d.y = d.originY + Math.sin(Math.min(1, (time - d.start) / 1.2) * Math.PI) * 0.8;
+    const rising=Math.min(1,(time-d.start)/.53);
+    const targetY=d.originY+(.30+1.9*d.loft)*rising+.23*Math.sin(rising*Math.PI);
+    d.y=ctx.airHeight?.(d,targetY)??targetY;
+    d.speed=(1-rising)*7*Math.sqrt(Math.max(0,1-d.loft*d.loft));
     d.acquired ??= {};
     for (const o of close) {
       if (d.acquired[o.id]===-1) continue;
@@ -295,7 +314,8 @@ export function tickField(d, owner, dt, ctx) {
       d.acquired[o.id] ??= time;
       if (time<d.acquired[o.id]+stat['blind windup on target acquisition']) continue;
       d.acquired[o.id]=-1;
-      o.plasmaUntil=time+stat['effective active duration'];
+      d.firedAt=time;
+      for(const near of close)if(near===o || dist(near,o)<=stat['plasma explosion radius on target'] && Math.abs(near.y-o.y)<2.5 && visible(o,near,3.6))near.plasmaUntil=time+stat['effective active duration'];
       ctx.trace(d,o,'#60aaff');
     }
   } else if (
@@ -346,9 +366,7 @@ export function tickField(d, owner, dt, ctx) {
       ctx.trace(d, target, '#ffcb62');
       hurt(target, hit < 20 ? 8 : hit < 35 ? 6 : 4, owner);
     }
-    const loud = target.shot > time - 0.35 || (target.mode === 'run' && Math.hypot(target.vx, target.vz) > 2);
-    const trigger =
-      d.kind === 'sonic-sensor' ? hit < 7 && loud : d.kind === 'trademark' ? hit < 10 : hit < 2.2;
+    const trigger = d.kind === 'trademark' ? hit < 10 : hit < 2.2;
     if (d.kind !== 'turret' && trigger) {
       d.triggerAt ??= time + (stat['windup time'] ?? stat.windup ?? 0.45);
       if (time >= d.triggerAt) {
@@ -356,9 +374,7 @@ export function tickField(d, owner, dt, ctx) {
         if (d.kind === 'trademark')
           add('slow', d.x, d.z, stat['slow duration'] ?? 4, 12, 12, 0.2, '#d6a65c', owner, d.y);
         else if (d.kind === 'shear') add('wall', d.x, d.z, 7, 5, 0.45, 3.5, '#aa91c0', owner, d.y);
-        else if (d.kind === 'sonic-sensor') {
-          for (const o of close) if (dist(o, d) < 7) o.tag = time + (stat['concuss duration'] ?? 2.5);
-        } else {
+        else {
           target.tether = { x: d.x, z: d.z, until: time + 3 };
           target.revealTeam = owner.team;
           target.revealEnd = time + 3;

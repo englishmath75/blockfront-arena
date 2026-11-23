@@ -9,7 +9,7 @@ const zones = {
   collapse: { radius: 6, hue: '#69bee0', delay: 0.15 },
   suspension: { radius: 7, hue: '#5bd2f1', delay: 0.1 },
   knife: { radius: 15, hue: '#ad85ff', delay: 1 },
-  guided: { radius: 4.5, hue: '#ff9956', delay: 1.25, count: 3, gap: 0.35 },
+  guided: { radius: 4.5, hue: '#ff9956', delay: 1.25, count: 3, gap: 0.8 },
   nova: { radius: 4.75, hue: '#cba1ff', delay: 1 },
   well: { radius: 4.75, hue: '#a07dec', delay: 1.25, count: 21, gap: 0.1 },
 };
@@ -22,11 +22,12 @@ export function createZone(kind, name, source, owner, ctx) {
   const destructible = kind === 'knife',
     count = def.count ?? 1,
     gap = def.gap ?? 0.1;
+  const travel=kind==='guided'?Math.hypot(source.x-owner.x,source.z-owner.z)/22:0;
   const d = ctx.add(
     'zoneEmitter',
     source.x,
     source.z,
-    delay + count * gap + 0.3,
+    travel + delay + count * gap + 0.3,
     destructible ? 0.24 : 0.5,
     destructible ? 0.24 : 0.5,
     destructible ? 0.38 : 0.2,
@@ -37,8 +38,9 @@ export function createZone(kind, name, source, owner, ctx) {
   Object.assign(d, {
     kind,
     name,
-    start: ctx.time + delay,
-    next: ctx.time + delay,
+    start: ctx.time + travel + delay,
+    next: ctx.time + travel + delay,
+    ...(kind==='guided'?{from:[owner.x,owner.y+1.35,owner.z],land:ctx.time+travel}:{}),
     radius: r,
     pulses: count,
     gap,
@@ -70,7 +72,10 @@ export function tickZone(d, owner, ctx) {
     )
       continue;
     if (d.kind === 'fragment' || d.kind === 'guided') {
-      if (enemy) ctx.hurt(o, d.kind === 'guided' ? 50 : Math.round(60 - (35 * r) / d.radius), owner);
+      if (d.kind==='guided') {
+        const distance=Math.hypot(r,o.y-d.y);
+        if(distance<=d.radius)ctx.hurt(o,Math.round(65-15*Math.max(0,(distance-2.5)/2))*(enemy?1:1/3),owner);
+      }else if(enemy)ctx.hurt(o,Math.round(60-35*r/d.radius),owner);
     } else if (d.kind === 'mpulse') {
       if (d.heal) o.hp = Math.min(100, o.hp + 20);
       else o.tag = t + 2.5;

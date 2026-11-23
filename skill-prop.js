@@ -1,5 +1,6 @@
 import * as T from 'three';
 import {handStyle} from './skill-handling.js';
+import {sculptedHand} from './ability-sculptures.js';
 
 const styles = {
   세이지: ['jade', '#49d5c2'],
@@ -60,6 +61,8 @@ const bare = new Set([
 ]);
 
 export function abilityProp(agent, skill) {
+  const authored=sculptedHand(skill);
+  if(authored)return authored;
   const root = new T.Group();
   const [fallback,tint]=styles[agent]??['prism','#88cdef'];
   const kind=handStyle[skill]??fallback;

@@ -6,6 +6,12 @@ import { parseCrosshair,reticle } from './crosshair.js';
 import { scopeLevels,zoomFov,drawScope } from './optics.js';
 import { anchorPair, wireVisual } from './trapwire.js';
 import { castField, tickField, fieldProp } from './agent-fields.js';
+import {presentAbility} from './ability-surfaces.js';
+import {drawTrails} from './terror-trails.js';
+import {wirePath,drawWire} from './nanowire.js';
+import {drawTejoMap,isTejoMap} from './tejo-map.js';
+import {worldSculpture} from './ability-sculptures.js';
+import {strikePath,insideStrip,tabletRange,sensorArea} from './strike-path.js';
 import { createZone, tickZone } from './ability-zones.js';
 import voices from './ability-voice.json' with { type: 'json' };
 import skillAudio from './ability-sfx.json' with { type: 'json' };
@@ -849,7 +855,7 @@ function walk(dt, p = match.player, keys = localKeys, prediction=false) {
     dz,
     (p.sprinting ? 9.11 : SPEED[p.mode]) *
       (p.ads ? (weaponFor(p).ads?.runSpeedMultiplier ?? 0.75) : weaponFor(p).move) *
-      (p.hasteUntil>now?1.1:1) * Math.min(p.detainedUntil > now ? 0.18 : p.tag > now ? 0.57 : 1,
+      (p.hasteUntil>now?1.1:1) * (p.netUntil>now?.7:1) * Math.min(p.detainedUntil > now ? 0.18 : p.tag > now ? 0.57 : 1,
         Math.max(p.iceUntil,p.slowUntil,p.hinderedUntil)>now ? .5 : 1),
     dt,
   );
@@ -880,13 +886,13 @@ function walk(dt, p = match.player, keys = localKeys, prediction=false) {
   }
   if (onFloor && keys.has('Space') && !p.jumpHeld && p.mode !== 'crouch') {
     const ice=p.iceUntil>now;
-    p.vy=ice||p.slowUntil>now?3.96:5.6;
+    p.vy=p.netUntil>now?2.2:ice||p.slowUntil>now?3.96:5.6;
     if(ice && !prediction){p.stepCount++;footSound(p,true);}
   }
   p.jumpHeld = keys.has('Space');
   if (!onFloor || p.vy > 0) {
     if (p.agent === '제트' && keys.has('Space') && p.vy < 0) p.vy = Math.max(-2.2, p.vy - dt * 2.5);
-    else p.vy -= dt * 18.5;
+    else p.vy -= dt * (p.netUntil>now?30:18.5);
     const dest = p.y + p.vy * dt,
       top = p.height + 0.12;
     if (p.vy > 0) {
@@ -1115,7 +1121,7 @@ function shoot(p, alt = false, follow = false) {
   if (
     !item ||
     p.ghost || p.down ||
-    p.reloading ||
+    p.reloading || p.netRemoval>0 ||
     p.nextShot > now ||
     !active() ||
     p.phaseUntil > now ||
@@ -1483,6 +1489,11 @@ function fieldContext() {
         d.y - radius,
       );
       if (skillAudio[d.name]?.impact) Object.assign(pulse, { name: d.name, cueAt: now });
+      if(d.kind==='wingman')Object.assign(pulse,{angle:d.angle,kind:'wingmanBlast'});
+    },
+    airHeight(d,target){
+      const floor=floorAt(d.x,d.z,d.y+.3),y=Math.max(Number.isFinite(floor)?floor+.25:-Infinity,target);
+      return world.intersects(d.x,d.z,y-.12,.18,match.devices,.24)?d.y:y;
     },
     travel(d, dx, dz) {
       const x = d.x + dx,
@@ -1520,6 +1531,10 @@ function owned(p, name) {
 }
 function deviceAction(p, d, interact=false) {
   if (!d || d.owner !== p.id || d.end <= now) return;
+  if(d.kind==='sonic-sensor'){
+    if(interact && !d.triggerAt && range(p,d)<=27){d.end=now;p.charges[1]=Math.min(AGENTS[p.agent].economy[1].max,p.charges[1]+1);}
+    return;
+  }
   if(d.kind==='gatecrash'){
     if(d.lock>now)return;
     const fake=interact;
@@ -1638,7 +1653,7 @@ function pilotFire(p) {
     return;
   }
   if (v.kind === '잠입 드론') {
-    const wave = addDevice('dronePulse', v.x, v.z, p.team, 1.1, 32, 32, 32, '#ecb662', p, v.y + 0.85 - 16);
+    const wave = addDevice('dronePulse', v.x, v.z, p.team, 1.43, 32, 32, 32, '#ecb662', p, v.y - 16);
     wave.delay = 0.4;
     wave.tagged = [];
     p.pilot = null;
@@ -1824,6 +1839,13 @@ function ability(i, p = match.player, params = {}) {
   let cost = 1;
   const ground = { x: point.x, y: floorAt(point.x, point.z, point.y + 1.5), z: point.z };
   if(name==='함정')params={...params,wire:anchorPair(world,line,distance,mountInfo,match.devices)};
+  if(name==='음향 센서'){
+    if(!mountInfo.normal || Math.abs(mountInfo.normal[1])>.32 || distance>=castReach || Math.abs(mountInfo.surfaceDistance-distance)>.12)return;
+    const hit=line.at(Math.max(0,distance-.05),new T.Vector3()),base=floorAt(hit.x,hit.z,hit.y+.4);
+    if(!Number.isFinite(base) || hit.y-base>4.5)return;
+    params={...params,mount:{x:hit.x,y:hit.y,z:hit.z,normal:mountInfo.normal}};
+    ground.y=base;
+  }
   const handled = castField(name, p, ground, params, fieldContext());
   if (handled === false) return;
   if (p.agent === '아스트라' && i < 3) {
@@ -1930,23 +1952,31 @@ function ability(i, p = match.player, params = {}) {
     p.stimUntil = ally.stimUntil = now + (stat['buff duration'] ?? 8);
     p.link = ally.id;
     ally.link = p.id;
-  } else if (name === '청부 계약' || name === '소멸') {
-    const reach = name === '소멸' ? 40 : 48;
+  } else if(name==='소멸'){
+    const {path,length,victim}=wirePath(world,line,match.devices,enemies,hasSight);
+    const transit=length/stat['pulse speed'],arrival=now+transit;
+    const thread=addDevice('nanowire',p.x,p.z,p.team,transit+.42,.08,.08,.08,'#6bdfff',p,p.y);
+    Object.assign(thread,{name,path,cueAt:arrival});
+    if(victim){
+      const start=arrival+stat['windup time'],span=stat['cocoon duration'];
+      const d=addDevice('cocoon',victim.x,victim.z,p.team,start-now+span+.12,.8,.8,1.68,'#77ddfa',p,victim.y);
+      const route=path.slice(0,-1).reverse().map(([x,y,z])=>({x,y:y-p.height*.65,z}));
+      route[route.length-1]={x:p.x,y:p.y,z:p.z};
+      const distance=route.reduce((s,point,i)=>s+range(point,i?route[i-1]:victim),0);
+      Object.assign(d,{hp:600,targetId:victim.id,route,goal:route[0],start,capture:arrival,pullSpeed:Math.max(3.7,distance/span),caught:false});
+    }
+  } else if (name === '청부 계약') {
+    const reach = 48;
     const victim = enemies
       .map((o) => ({
         o,
         along: vec(o.x - line.origin.x, o.y + o.height * 0.65 - line.origin.y, o.z - line.origin.z).dot(dir),
         error: line.distanceToPoint(vec(o.x, o.y + o.height * 0.65, o.z)),
       }))
-      .filter((v) => v.along > 0 && v.along < reach && v.error < (name === '소멸' ? 2.2 : 3.4))
+      .filter((v) => v.along > 0 && v.along < reach && v.error < 3.4)
       .sort((a, b) => a.along - b.along)[0]?.o;
     if (!victim) {
       world.trace(line.origin, line.at(reach, new T.Vector3()), now, '#ad94ff', 0.38);
-    } else if (name === '소멸') {
-      const d = addDevice('cocoon', victim.x, victim.z, p.team, 7.25, 0.9, 0.9, 1.65, '#94d3f1', p, victim.y);
-      Object.assign(d, { hp: 600, targetId: victim.id, goal: { x: p.x, z: p.z, y: p.y }, start: now + 0.5 });
-      victim.detainedUntil = d.end;
-      victim.trappedBy = d.id;
     } else if (!p.duel && !victim.duel) {
       const level = 66 + p.i * 18;
       const duration = 1.5 + 13;
@@ -2059,7 +2089,15 @@ function ability(i, p = match.player, params = {}) {
     } else p.phaseUntil = now + 1.5;
   } else if (name === '여진' || name === '섬광 폭발') {
     if (distance >= castReach) return;
-    const m = line.at(distance + (name === '여진' ? 2.6 : 0.65), new T.Vector3());
+    const m=new T.Vector3();
+    let exit=distance+.09;
+    // Find the far face even when two map walls have different thicknesses.
+    for(let i=0;i<48;i++,exit+=.125){
+      line.at(exit,m);
+      if(!world.structure.blocked(m.x,m.z,m.y-.02,.025,.04))break;
+    }
+    if(exit>=distance+6)exit=distance+.12;
+    line.at(exit+(name==='여진'?2.6:.10),m);
     const d = addDevice(
       name === '여진' ? 'aftershock' : 'wallFlash',
       m.x,
@@ -2073,7 +2111,7 @@ function ability(i, p = match.player, params = {}) {
       p,
       m.y - 2.5,
     );
-    d.start = now + (name === '여진' ? 2.2 : 0.5);
+    d.name=name;d.start=now+stat['windup time'];d.cueAt=d.start;
     d.pulses = name === '여진' ? 2 : 1;
   } else if (name === '부활') {
     const ally = friends
@@ -2194,11 +2232,11 @@ function ability(i, p = match.player, params = {}) {
       ? params.marks
           .slice(0, cap)
           .filter(
-            (m) =>
+            (m,index) =>
               m &&
               Number.isFinite(m.x) &&
               Number.isFinite(m.z) &&
-              (name === '그림자 습격' || Math.hypot(m.x - p.x, m.z - p.z) <= 55),
+              (name==='아마겟돈' && index===1 || Math.hypot(m.x-p.x,m.z-p.z)<=tabletRange(name)),
           )
       : [];
     if (!sites.length) return;
@@ -2209,25 +2247,15 @@ function ability(i, p = match.player, params = {}) {
     if (name === '그림자 습격') {
       p.teleportAt = now + 3;
       p.destination = world.structure.spawn(targets[0].x, targets[0].z, targets[0].y);
-    } else if (name === '아마겟돈' && targets.length === 2) {
-      for (let i = 0; i < 8; i++) {
-        const t = i / 7,
-          m = targets[0],
-          b = targets[1];
-        const d = addDevice(
-          'orbital',
-          m.x + (b.x - m.x) * t,
-          m.z + (b.z - m.z) * t,
-          p.team,
-          2.1 + t,
-          6,
-          6,
-          6,
-          '#ec994e',
-          p,
-          m.y,
-        );
-        d.start = now + 0.7 + t;
+    } else if (name === '아마겟돈') {
+      if(sites.length!==2 || !Number.isFinite(world.structure.support(sites[0].x,sites[0].z,p.y+6)))return;
+      const path=strikePath(targets[0],sites[1]);if(!path.length)return;
+      for(const segment of path){
+        const floor=floorAt(segment.x,segment.z,targets[0].y+4);
+        if(!Number.isFinite(floor))continue;
+        const d=addDevice('armageddon',segment.x,segment.z,p.team,segment.delay+.99,12,2,5,'#ffb851',p,floor);
+        Object.assign(d,{name,angle:segment.angle,start:now+segment.delay,next:now+segment.delay,pulses:4});
+        if(path.indexOf(segment)%4===0)d.cueAt=d.start;
       }
     } else
       for (const m of targets)
@@ -2533,43 +2561,41 @@ function tickProjectiles(dt) {
     )
       return false;
     if (a.type === 'barrier') {
-      const center = addDevice('meshNode', a.x, a.z, p.team, 40, 0.65, 0.65, 0.7, '#60c8ee', p, base);
-      center.hp = 680;
+      const center = addDevice('meshNode', a.x, a.z, p.team, 30, 0.65, 0.65, 0.7, '#60c8ee', p, base);
+      Object.assign(center,{name:'장벽망',cueAt:now+1});
+      center.hp=680;center.fortify=now+timing['장벽망']['time taken to fortify'];
       for (const [dx, dz] of [
         [1, 0],
         [-1, 0],
         [0, 1],
         [0, -1],
       ]) {
+        const sideRay=new T.Ray(vec(a.x,base+.32,a.z),vec(dx,0,dz));
+        const span=Math.min(10,world.mapHit(sideRay,10,match.devices)-.23);
+        if(span<.5)continue;
+        const x=a.x+dx*span,z=a.z+dz*span,y=floorAt(x,z,base+1.1);
+        if(!Number.isFinite(y) || Math.abs(base-y)>1.2)continue;
         const node = addDevice(
           'meshNode',
-          a.x + dx * 5.5,
-          a.z + dz * 5.5,
-          p.team,
-          40,
+          x,z,p.team,30,
           0.5,
           0.5,
           0.55,
           '#9ae4ff',
-          p,
-          base,
+          p,y,
         );
-        node.hp = 320;
+        node.hp=320;node.fortify=center.fortify;
         node.parent = center.id;
         const panel = addDevice(
           'meshPanel',
-          a.x + dx * 2.75,
-          a.z + dz * 2.75,
-          p.team,
-          40,
-          dx ? 5.5 : 0.2,
-          dz ? 5.5 : 0.2,
+          a.x+dx*span*.5,a.z+dz*span*.5,p.team,30,
+          dx?span:.12,dz?span:.12,
           2.4,
           '#92e4ff',
           p,
           base,
         );
-        panel.nodes = [center.id, node.id];
+        panel.nodes=[center.id,node.id];panel.start=now+timing['장벽망']['deploy time'];
       }
       return false;
     }
@@ -2588,7 +2614,7 @@ function tickProjectiles(dt) {
                 ? 3
                 : t === 'haunt'
                   ? timing['귀체'].windup
-                  : t === 'seize' ? timing['포박'].windup : 0.15;
+                  : t === 'seize' ? timing['포박'].windup : t==='net'?timing['중력그물'].windup:.15;
       const d = place(
         k,
         delay + (t === 'seize' ? 4.5 : t === 'haunt' ? 1.5 : 0.28),
@@ -2596,11 +2622,12 @@ function tickProjectiles(dt) {
         t === 'haunt' ? 0.6 : 0.24,
         { net: '#71cfe7', seize: '#7566a4', haunt: '#814d88', mosh: '#91da55', meddle: '#bb80d4' }[t] ??
           '#a0daff',
-        base + 0.03,
+        (t==='delivery'?a.y:base)+.03,
       );
       Object.assign(d, { start: now + delay, radius: rad, done: false });
       if (skillAudio[a.name]?.impact) Object.assign(d, { name: a.name, cueAt: d.start });
-      if (t === 'haunt') d.hp = 1;
+      d.name=a.name;
+      if (t === 'haunt') d.hp=1;
     } else if (a.type === 'recon') {
       const d = place('recon', 3.4, 0.24, 0.24, '#64d9ff', a.y);
       d.hp = 20;
@@ -2672,7 +2699,7 @@ function tickProjectiles(dt) {
   });
   match.arrows.push(...children);
 }
-const worldUp=new T.Vector3(0,1,0),surfaceDirection=new T.Vector3();
+const worldUp=new T.Vector3(0,1,0),worldForward=new T.Vector3(0,0,1),surfaceDirection=new T.Vector3();
 function drawProjectiles() {
   const visible = (world.projectiles ??= new Map());
   const ids = new Set();
@@ -2697,7 +2724,7 @@ function drawProjectiles() {
         paint: 'paintshell',
         knife: 'zeropoint',
         flash: 'flashdrive',
-        satchel: 'blast-pack',
+        satchel: 'blast-pack',mosh:'mosh-pit',net:'gravnet',barrier:'barrier-mesh',
       }[a.type];
       if (slug) {
         const holder = new T.Group();
@@ -2709,6 +2736,8 @@ function drawProjectiles() {
           if (arrow) orientation.rotation.y = Math.PI / 2;
           attachProp(orientation, slug, arrow ? 0.72 : 0.32);
         m.material.visible = false;
+      } else if (['delivery','haunt','seize'].includes(a.type)) {
+        m.scale.setScalar(1);m.material.visible=false;m.add(worldSculpture(a.name,a.type==='delivery'?.21:.32));
       } else if (a.type === 'cloud') {
         m.geometry = new T.SphereGeometry(0.6, 16, 12);
       }
@@ -2725,7 +2754,7 @@ function drawProjectiles() {
   }
   for (const p of match.players) {
     if (!p.pilot || p.down || p.pilot.kind==='스파이캠') continue;
-    const id = 'pilot-' + p.id;
+    const id = 'pilot-' + p.id + '-' + p.pilot.kind;
     ids.add(id);
     let m = visible.get(id);
     if (!m) {
@@ -2741,7 +2770,7 @@ function drawProjectiles() {
         const holder = new T.Group();
         m.add(holder);
         holder.scale.set(1 / m.scale.x, 1 / m.scale.y, 1 / m.scale.z);
-        attachProp(holder,slug,slug==='stealth-drone'?.49:.6,true);
+        attachProp(holder,slug,slug==='stealth-drone'?.49:slug==='thrash'?.96:.6,true);
         m.userData.mount=holder;
         m.material.visible = false;
       }
@@ -2749,7 +2778,8 @@ function drawProjectiles() {
     }
     const modelY=p.pilot.y-(p.pilot.kind==='잠입 드론'?.25:0);
     const moved=(m.position.x-p.pilot.x)**2+(m.position.z-p.pilot.z)**2>.000001;
-    m.userData.mount?.userData.animateProp?.(moved?'_Run_N':'_Idle',now);
+    const clip=p.pilot.lungeEnd?'_Attack':p.pilot.jump>.3?'_Jump':p.pilot.jump<-.8?'_Fall':moved?'_Run_N':'_Idle';
+    m.userData.mount?.userData.animateProp?.(clip,p.pilot.lungeEnd?now-p.pilot.lungeEnd+.34:now);
     m.position.set(p.pilot.x, modelY, p.pilot.z);
     m.rotation.y = p.yaw;
     const enemy = hostile(match.player, p);
@@ -2815,6 +2845,7 @@ function applyAction(p, a) {
   switch (a.kind) {
     case 'interact':
       {
+        if(p.netUntil>now)break;
         const d = aimedDevice(p);
         if (d) deviceAction(p, d, true);
         else useMechanism(world.mechanisms, p);
@@ -3073,17 +3104,17 @@ function step(dt) {
           delete p.globeCooldowns[slot];
         }
       const g = match.devices.find(
-        (d) => d.type === 'globule' && d.owner === p.id && d.end > now && range(p, d) < 2,
+        (d) => d.type === 'globule' && d.owner === p.id && d.end > now && range(p, d) < 2 && Math.abs(d.y-p.y)<1.8,
       );
       if (g && pressed.has('KeyF')) {
-        p.reclaim = (p.reclaim ?? 0) + dt;
+        p.reclaim=(p.reclaimId===g.id?p.reclaim:0)+dt;p.reclaimId=g.id;g.reclaim=p.reclaim;
         if (p.reclaim >= 1.5) {
           g.end = now;
           p.globeCooldowns[g.slot] = now + 15;
           if (g.slot === 3) p.reclaimedThrash = true;
           p.reclaim = 0;
         }
-      } else p.reclaim = 0;
+      } else {if(g)g.reclaim=0;p.reclaim=0;p.reclaimId=null;}
     }
     if (p.agent === '스카이' && p.regrowing && pressed.has('SkillMouse') && p.healingPool > 0) {
       const allies = match.players.filter(
@@ -3103,7 +3134,7 @@ function step(dt) {
     if (p.agent === '제트') p.guiding = pressed.has('KeyC');
     if (['스카이', '피닉스', '페이드', '하버'].includes(p.agent)) p.guiding = pressed.has('SkillMouse');
     p.ads = p.local ? ads : !!input?.ads;
-    p.channel = (pressed.has('KeyF') && !interactable(world.mechanisms, p)) || pressed.has('Digit4');
+    p.channel = !p.netRemoval && ((pressed.has('KeyF') && !interactable(world.mechanisms, p)) || pressed.has('Digit4'));
     if (!p.local && input) {
       p.yaw = input.yaw;
       p.pitch = input.pitch;
@@ -3169,10 +3200,10 @@ function step(dt) {
       }
       if (d.type === 'cocoon') {
         const o = match.players.find((v) => v.id === d.targetId);
-        if (o) {
+        if (o && o.trappedBy===d.id) {
           o.trappedBy = 0;
           o.detainedUntil = 0;
-          if (d.hp > 0 && !o.down)
+          if (d.hp > 0 && !o.down && d.arrived)
             hurt(
               o,
               9999,
@@ -3180,9 +3211,9 @@ function step(dt) {
             );
         }
       }
-      if (['wingman', 'dizzy'].includes(d.kind) || d.type === 'mosh') {
+      if (['wingman', 'dizzy'].includes(d.kind) || d.type==='mosh') {
         const owner = match.players.find((o) => o.id === d.owner),
-          slot = d.kind === 'dizzy' ? 2 : d.kind === 'wingman' ? 1 : 0;
+          slot=d.type==='mosh'?0:d.kind==='dizzy'?2:1;
         if (owner) dropGlobule(owner, d, slot);
       }
       disposeDevice(d);
@@ -3208,13 +3239,17 @@ function step(dt) {
     }
     if (d.type === 'cocoon') {
       const o = match.players.find((v) => v.id === d.targetId);
-      if (o && !o.down && now >= d.start) {
-        const r = Math.max(0.15, range(d, d.goal));
-        const f = Math.min(1, (dt * 5) / r);
+      if(!d.caught && o && !o.down && now>=d.capture){
+        d.caught=true;o.trappedBy=d.id;o.detainedUntil=d.end;Object.assign(d,{x:o.x,y:o.y,z:o.z});
+      }
+      if (d.caught && o && !o.down && now >= d.start) {
+        const r = Math.max(0.001,Math.hypot(d.goal.x-d.x,d.goal.y-d.y,d.goal.z-d.z));
+        const f = Math.min(1,dt*d.pullSpeed/r);
         d.x += (d.goal.x - d.x) * f;
         d.z += (d.goal.z - d.z) * f;
         d.y += (d.goal.y - d.y) * f;
         Object.assign(o, { x: d.x, y: d.y, z: d.z, vy: 0 });
+        if(f===1){d.route.shift();d.goal=d.route[0];if(!d.goal){d.arrived=true;d.end=now;}}
         d.mesh.position.set(d.x, d.y + d.h / 2, d.z);
       }
       return true;
@@ -3259,6 +3294,10 @@ function step(dt) {
     ) {
       disposeDevice(d);
       return false;
+    }
+    if(d.type==='meshNode'){
+      if(d.parent && !match.devices.some(other=>other.id===d.parent && other.hp>0 && other.end>now)){d.end=now;return true;}
+      if(d.fortify && now>=d.fortify){d.hp+=d.parent?160:520;d.fortify=0;}
     }
     if (tickField(d, caster, dt, field)) return true;
     if (d.type === 'blaze' || d.type === 'tide') {
@@ -3333,13 +3372,14 @@ function step(dt) {
         if (!hasSight(center, o, r)) continue;
         if (d.type === 'eye' || d.type === 'wallFlash') {
           const direction = vec(d.x - o.x, d.y - o.y - o.height, d.z - o.z).normalize();
-          if (d.type === 'wallFlash') flashPlayer(o,d,d.flashDuration ?? timing['섬광 폭발']['max blind duration']);
+          if (d.type === 'wallFlash') flashPlayer(o,center,d.flashDuration ?? timing['섬광 폭발']['max blind duration']);
           else if (aim(o.yaw, o.pitch).dot(direction) > 0.25) o.nearsight = now + 0.25;
         } else if (d.type === 'haunt') {
           o.revealTeam = d.team;
-          o.revealEnd = now + 0.8;
-          o.trailEnd = now + timing['귀체']['trail duration'];
-        } else if (d.type === 'aftershock') hurt(o, 80, owner);
+          o.revealEnd=now+.8;
+          if(!(o.trailEnd>now))o.trailOrigin=[d.x,d.y,d.z];
+          o.trailEnd=now+timing['귀체']['trail duration'];o.trailTeam=d.team;
+        } else if (d.type === 'aftershock') hurt(o,hostile(owner,o)?80:26,owner);
         else if (d.type === 'meddle') {
           if (!(o.decayUntil > now)) {
             const loss = Math.min(90, Math.max(0, o.hp - 1));
@@ -3347,13 +3387,17 @@ function step(dt) {
             o.decayLost = (o.decayLost ?? 0) + loss;
           }
           o.decayUntil = now + 3;
-        } else if (d.type === 'net') o.netUntil = now + 6;
-        else o.tag = now + 2.5;
+        } else if (d.type === 'net') {o.netUntil=Number.MAX_SAFE_INTEGER;o.netRemoval=0;}
+        else {
+          o.tag=now+2.5;
+          if(d.name==='특별 배송')hurt(o,Math.round(35-15*Math.min(1,range(o,d)/d.radius))*(hostile(owner,o)?1:1/3),owner);
+        }
       }
-      d.next = now + (['eye', 'haunt'].includes(d.type) ? 0.15 : d.type === 'aftershock' ? 0.65 : 9);
+      if(d.type==='aftershock'){d.pulses--;d.next=d.pulses?now+.6:d.end;}
+      else d.next=now+(['eye','haunt'].includes(d.type)?.15:9);
     }
     if (d.type === 'dronePulse' && now >= d.born + 0.4) {
-      const r = Math.min(16, ((now - d.born - 0.4) * 16) / 0.7),
+      const r = Math.min(16,(now-d.born-.4)*timing['잠입 드론']['pulse velocity']),
         center = { x: d.x, y: d.y + 16, z: d.z };
       for (const o of match.players)
         if (!o.down && o.team !== d.team && !d.tagged.includes(o.id) && hasSight(center, o, r)) {
@@ -3385,6 +3429,13 @@ function step(dt) {
     }
     if(d.type==='ice'){
       for(const o of match.players) if(onIce(d,o,now))o.iceUntil=now+.09;
+      return true;
+    }
+    if(d.type==='armageddon'){
+      while(d.pulses>0 && now>=d.next){
+        d.pulses--;d.next+=.25;
+        for(const p of match.players)if(!p.down && caster && insideStrip(d,p))hurt(p,hostile(caster,p)?60:20,caster);
+      }
       return true;
     }
     if (['orbital', 'stimField'].includes(d.type) && now >= (d.start ?? 0) && now >= (d.next ?? 0)) {
@@ -3470,7 +3521,9 @@ function drawWorld(realTime) {
   } else {
     for (const d of match.devices) {
       if(dimensionalEffect(d,now,match.player))continue;
-      drawDevice(d, now);
+      if(d.type==='nanowire')drawWire(d,now);
+      const specialVisual=presentAbility(d,now);
+      if(!specialVisual)drawDevice(d, now);
       if (d.type === 'recon' && d.normal) {
         const mesh = d.mesh;
         if (!mesh.userData.mounted) {
@@ -3495,6 +3548,7 @@ function drawWorld(realTime) {
         d.mesh.userData.lastSound = cueAt;
         if (now - cueAt < 0.55) playSkillCue(d, d.name, 'impact');
       }
+      if(specialVisual)continue;
       if(d.kind==='trapwire' && d.wireEnd){wireVisual(d,now,match.player);continue}
       if(d.kind==='camera'){
         const mesh=d.mesh;
@@ -3534,7 +3588,12 @@ function drawWorld(realTime) {
         }
         if(mesh.userData.propHeight){
           mesh.position.y=d.y+mesh.userData.propHeight*.43;
-          mesh.userData.animateProp?.(d.chasing?'_Run':'_Idle',now-d.born);
+          const clip=d.kind==='dizzy' ? now<d.start?'_Intro':now-(d.firedAt??-10)<.32?'_Fire':'_Active' : d.chasing?'_Run':'_Idle';
+          mesh.userData.animateProp?.(clip,now-(clip==='_Fire'?d.firedAt:d.born));
+          if(d.kind==='sonic-sensor' && d.normal){
+            mesh.position.y=d.y;mesh.quaternion.setFromUnitVectors(worldForward,surfaceDirection.fromArray(d.normal).normalize());
+            mesh.visible=d.team===match.player.team || !!d.triggerAt || sensorArea(d,match.player);
+          }
         }
         if(d.kind==='wingman'){
           mesh.position.y=d.y+.39;
@@ -3546,6 +3605,7 @@ function drawWorld(realTime) {
     }
     drawProjectiles();
     const watch = observer();
+    drawTrails(world,match.players,watch,now);
     const self = match.player;
     const shadow = watch.nearsight > now,
       astral = watch === self && armedName() === '어둠의 장막' && alternateView,
@@ -3669,6 +3729,7 @@ function drawWorld(realTime) {
         currentSkin(o),
         o.strike,
         o.pitch,
+        o.armedSlot!=null ? AGENTS[o.agent].gear[o.armedSlot] : o.lastCast?.end>now && now-o.lastCast.at<.14 ? o.lastCast.name : null,
       );
 
       g.scale.y = o.mode === 'crouch' ? 0.74 : 1;
@@ -3801,11 +3862,15 @@ function drawHud() {
   if (!match || hud.hidden) return;
   const p = match.player;
   const watch = observer();
+  hud.classList.toggle('tejo-camera',watch.pilot?.kind==='잠입 드론' && now>=watch.pilot.ready);
+  hud.classList.toggle('thrash-camera',watch.pilot?.kind==='요동봇' && now>=watch.pilot.ready);
   if (p.down && armedSkill !== null && !(p.agent === '클로브' && armedSkill === 2)) disarm();
   minimap(watch);
   const tablet = get('tablet-map');
   tablet.hidden = !tabletNames.includes(armedName());
-  if (!tablet.hidden) {
+  const tejoMap=isTejoMap(armedName());tablet.classList.toggle('tejo-projection',tejoMap);
+  if(tejoMap && !tablet.hidden)drawTejoMap(tablet,mapBase,HALF,p,armedName(),marks,cursor);
+  else if (!tablet.hidden) {
     const ctx = tablet.getContext('2d'),
       size = tablet.width;
     ctx.drawImage(mapBase, 0, 0, size, size);
@@ -3936,6 +4001,7 @@ function drawHud() {
   const core = match.core;
   const prompt = p.down
     ? '관전 · 좌클릭으로 전환'
+    : p.netUntil>now ? '[F 유지] 중력그물 제거 · '+Math.min(100,Math.floor((p.netRemoval??0)/1.5*100))+'%'
     : match.phase === 'buy'
       ? rush()
         ? '이번 라운드 무기 · ' + weaponFor(p).name
@@ -3975,7 +4041,7 @@ function drawHud() {
   const mechanismHint = p.pilot
     ? '좌클릭 장치 사용 · 스킬 키로 복귀'
     : aimed
-      ? '[F] 설치한 스킬 작동'
+      ? aimed.kind==='sonic-sensor'?'[F] 음향 센서 회수':'[F] 설치한 스킬 작동'
       : mechanism
         ? mechanism.name +
           ' · ' +
@@ -4421,7 +4487,7 @@ stateKeys.push(
   'mustKillBy',
   'vulnerable',
   'netUntil',
-  'trailEnd',
+  'trailEnd','trailOrigin','trailTeam','netRemoval',
 );
 function snapshot() {
   const skin = currentSkin(match.player);
@@ -5052,7 +5118,7 @@ canvas.addEventListener('mousedown', (event) => {
         return;
       }
       if (!alt) {
-        if (name !== '그림자 습격' && Math.hypot(cursor.x - match.player.x, cursor.z - match.player.z) > 55)
+        if (!(name==='아마겟돈' && marks.length) && Math.hypot(cursor.x-match.player.x,cursor.z-match.player.z)>tabletRange(name))
           return;
         if (['궤도 일격', '그림자 습격'].includes(name)) {
           cast({ marks: [{ ...cursor }] });
@@ -5140,12 +5206,13 @@ window.addEventListener('mousemove', (event) => {
   if (screen !== 'game') return;
   if (tabletNames.includes(armedName())) {
     const rect = get('tablet-map').getBoundingClientRect();
+    const centred=isTejoMap(armedName()),extent=centred?tabletRange(armedName()):HALF;
     if (unlocked) {
-      cursor.x = ((event.clientX - rect.left) / rect.width - 0.5) * 2 * HALF;
-      cursor.z = ((event.clientY - rect.top) / rect.height - 0.5) * 2 * HALF;
+      cursor.x=(centred?match.player.x:0)+((event.clientX-rect.left)/rect.width-.5)*2*extent;
+      cursor.z=(centred?match.player.z:0)+((event.clientY-rect.top)/rect.height-.5)*2*extent;
     } else {
-      cursor.x += (event.movementX * 2 * HALF) / Math.max(1, rect.width);
-      cursor.z += (event.movementY * 2 * HALF) / Math.max(1, rect.height);
+      cursor.x += (event.movementX * 2 * extent) / Math.max(1, rect.width);
+      cursor.z += (event.movementY * 2 * extent) / Math.max(1, rect.height);
     }
     cursor.x = Math.max(-HALF, Math.min(HALF, cursor.x));
     cursor.z = Math.max(-HALF, Math.min(HALF, cursor.z));

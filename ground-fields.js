@@ -23,7 +23,7 @@ export function tickGroundField(d, owner, ctx) {
         d.caught.push(p.id);
       }
       if (time>=d.start) {
-        p.tether = {x:d.x,z:d.z,radius:d.radius,until:d.end};
+        p.tether = {x:d.x,z:d.z,radius:d.radius,until:d.end,kind:'seize'};
         p.deafUntil = Math.max(p.deafUntil,d.end);
       }
     }

@@ -18,6 +18,10 @@ import chromas from './motion-chromas.json' with { type: 'json' };
 import joints from './finger-motion.json' with { type: 'json' };
 import { castField, tickField } from './agent-fields.js';
 import { createZone, tickZone, shieldHit } from './ability-zones.js';
+import {strikePath,insideStrip,sensorArea,tabletRange} from './strike-path.js';
+import {wirePath} from './nanowire.js';
+import {worldSculpture} from './ability-sculptures.js';
+import {Box3} from 'three';
 import { Group, Ray, Vector3 } from 'three';
 import { parseCrosshair } from './crosshair.js';
 import { scopeLevels,zoomFov } from './optics.js';
@@ -218,8 +222,62 @@ test('captured chromas and finger observations belong to playable motions', () =
   }
 });
 
+test('Fault Line starts eight metres away and its charged footprint extends 56 metres',()=>{
+  const {caster,target,ctx,devices}=fieldScenario();
+  castField('균열',caster,caster,{charge:1},ctx);
+  const d=devices[0];assert.equal(d.originZ,-8);assert.equal(d.reach,56);assert.equal(d.w,8);
+  ctx.time=d.start+.01;
+  for(const [x,z,hit] of [[0,-6,false],[4.15,-12,false],[3.9,-63,true]]){
+    Object.assign(target,{x,z,tag:0});tickField(d,caster,.016,ctx);assert.equal(target.tag>0,hit);
+  }
+});
+
+test('Armageddon pivots a 32 by 12 metre path, independent of the second click distance',()=>{
+  const origin={x:2,z:6},near=strikePath(origin,{x:2.2,z:6}),far=strikePath(origin,{x:45,z:6});
+  assert.deepEqual(near,far);assert.equal(near.length,16);assert.equal(near[0].delay,3.08);
+  assert.equal(near[15].x,33);assert.equal(near[15].delay-near[0].delay,3.75);
+  const d={...near[3],w:12,d:2,h:5,y:0};
+  assert(insideStrip(d,{x:d.x,z:d.z+5.99,y:0}));assert(!insideStrip(d,{x:d.x,z:d.z+6.1,y:0}));
+  assert.deepEqual(strikePath(origin,origin),[]);assert.equal(tabletRange('아마겟돈'),52.5);assert.equal(tabletRange('유도 일제 사격'),45);
+});
+
+test('a quiet opponent cannot trigger a Sonic Sensor, a second loud opponent can',()=>{
+  const {caster,target,ctx,devices}=fieldScenario();
+  const second={...target,id:3,x:1,mode:'run',vx:4,vz:0},mount={x:0,y:1,z:0,normal:[0,0,-1]};
+  ctx.players.push(second);assert(castField('음향 센서',caster,mount,{mount},ctx));
+  const d=devices[0];ctx.time=d.start+.1;second.vx=0;tickField(d,caster,.01,ctx);assert.equal(d.triggerAt,undefined);
+  second.vx=4;tickField(d,caster,.01,ctx);assert.equal(d.triggerAt,ctx.time+.5);
+  second.vx=0;ctx.time=d.triggerAt+.01;tickField(d,caster,.01,ctx);assert(target.tag>ctx.time);assert(second.tag>ctx.time);
+  assert(!sensorArea(d,{...target,z:1}));assert(!sensorArea(d,{...target,x:4.2}));
+});
+
+test('Guided Salvo flies to its mark, then pulses three times at 0.8 second intervals',()=>{
+  const {caster,target,ctx,devices}=fieldScenario();ctx.visible=()=>true;
+  createZone('guided','유도 일제 사격',{x:22,y:0,z:0},caster,ctx);
+  const d=devices[0];assert.equal(d.land,1);assert.equal(d.start,2.25);assert.equal(d.radius,4.5);
+  Object.assign(target,{x:22,z:0,hp:300});ctx.time=d.start-.01;tickZone(d,caster,ctx);assert.equal(target.hp,300);
+  for(let i=0;i<3;i++){ctx.time=d.start+.8*i+.001;tickZone(d,caster,ctx);}
+  assert.equal(target.hp,105);assert.equal(d.pulses,0);
+});
+
+test('the Deadlock pulse reflects from the first wall and cannot seize through that wall',()=>{
+  const ray=new Ray(new Vector3(0,1,0),new Vector3(0,0,-1));
+  const wall={mapHit(ray,max,devices,vision,hit){if(ray.direction.z<0){hit.normal=[0,0,1];return 5;}return max;}};
+  const hidden={x:0,y:0,z:-8,height:1.5},around={x:0,y:0,z:4,height:1.5};
+  const result=wirePath(wall,ray,[],[hidden,around],()=>false);
+  assert.equal(result.victim,around);assert.equal(result.path.length,3);assert(result.length<15);
+});
+
+test('Fade creatures keep their specified world size under different model proportions',()=>{
+  for(const [name,span] of [['추적귀',1.1],['귀체',.72],['meshNode',.46],['yellow',.41]]){
+    const root=worldSculpture(name,span),s=new Box3().setFromObject(root).getSize(new Vector3());
+    assert(Math.abs(Math.max(s.x,s.y,s.z)-span)<.001);assert(root.children.length>=2);
+  }
+});
+
 test('Fault Line waits for windup and Lockdown detains through cover after its countdown', () => {
   const { caster, target, ctx, devices } = fieldScenario();
+  target.z=-12;
   assert(castField('균열', caster, caster, { charge: 1 }, ctx));
   const wave = devices[0];
   ctx.time = 1;

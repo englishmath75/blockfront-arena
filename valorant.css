@@ -369,7 +369,13 @@ input:not([type='range']):not([type='checkbox']) {
   inset: 0;
   pointer-events: none;
   z-index: 9;
-  background: radial-gradient(ellipse at 50% 45%, #183968 0%, #2b5790 42%, #3982a9e8 60%, transparent 84%);
+  background:
+    radial-gradient(ellipse at 35% 30%,#afefff95 0 1%,transparent 3%),
+    radial-gradient(ellipse at 63% 61%,#85dfffad 0 2%,transparent 4%),
+    radial-gradient(ellipse at 43% 46%,#377bec 0 29%,#168cec 44%,#37caffed 58%,transparent 60%),
+    radial-gradient(ellipse at 59% 52%,#218ee8 0 27%,#61d7ff 42%,transparent 44%),
+    radial-gradient(ellipse at 64% 22%,#42baff 0 1.9%,transparent 2.5%),
+    radial-gradient(ellipse at 25% 72%,#31c1ff 0 2.1%,transparent 2.9%);
 }
 .blind:after {
   content: '';
@@ -485,6 +491,19 @@ input:not([type='range']):not([type='checkbox']) {
   background: #192529;
   box-shadow: 0 0 0 10px #293137e6;
   image-rendering: auto;
+}
+#hud.tejo-camera::before,#hud.thrash-camera::before {
+  content:"";position:absolute;inset:4% 3%;pointer-events:none;z-index:0;
+  background:linear-gradient(110deg,#ffc15a24,transparent 16% 83%,#ffc15a20);
+  clip-path:polygon(0 8%,4% 0,96% 0,100% 8%,100% 92%,96% 100%,4% 100%,0 92%);
+  box-shadow:inset 0 0 0 2px #e5bc6d88,inset 0 -16px 35px #cfb06218;
+}
+#hud.thrash-camera::before {background:radial-gradient(ellipse,transparent 35%,#ec3ca446 85%);box-shadow:inset 0 0 20px #f34daa80;}
+#tablet-map.tejo-projection {
+  border-radius:50%;
+  border:2px solid #ffe1a0;
+  box-shadow:0 0 0 4px #cc9b5530,0 0 21px #ffb33466,inset 0 0 24px #ffcd8e77;
+  background:transparent;
 }
 #tablet-map[hidden] {
   display: none;

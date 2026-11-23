@@ -366,7 +366,7 @@ export function createWorld(canvas, data) {
     }
     return devices.some(
       (d) =>
-        (d.type === 'wall' || d.type === 'meshPanel') &&
+        (d.type === 'wall' || d.type === 'meshPanel' && clock>=(d.start??0)) &&
         y < (d.y ?? 0) + d.h &&
         Math.abs(x - d.x) < d.w / 2 + radius &&
         Math.abs(z - d.z) < d.d / 2 + radius &&
