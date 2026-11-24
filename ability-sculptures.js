@@ -160,20 +160,66 @@ const focusSets=[
   ['대비책','약화','구슬 보호막','청부 계약'],
   ['활력 회복','간섭','계략','아직 안 죽었어'],
   ['추월 차선','릴레이 볼트','고속 기어','오버드라이브'],
-  ['기만','기습','관문 충돌','차원 표류']
+  ['기만','기습','관문 충돌','차원 표류'],
+  ['포화','광속','굴절','초점 교차'],
+  ['장벽 구슬','둔화 구슬','회복 구슬','부활'],
+  ['눈총','포식','무시','여제'],
+  ['어둠의 발자국','피해망상','어둠의 장막','그림자 습격'],
+  ['연막 폭발','상승 기류','순풍','칼날 폭풍']
 ];
 const focus=Object.fromEntries(focusSets.flatMap((set,g)=>set.map((name,i)=>[name,{g,i}])));
-const focusLeft=new Set(['뱀 이빨','독성 장막','독사의 구덩이','격류','섬광등','불길','뜨거운 손','지름길','진화',...focusSets[4],'공중 연막','궤도 일격','약화','청부 계약','계략','기만']);
+const focusLeft=new Set(['뱀 이빨','독성 장막','독사의 구덩이','격류','섬광등','불길','뜨거운 손','지름길','진화',...focusSets[4],'공중 연막','궤도 일격','약화','청부 계약','계략','기만','포화','굴절','눈총','포식','어둠의 장막','연막 폭발']);
 const shell=metal(0x253a38,.79),petrol=metal(0x12282c,.76),jet=metal(0x141222,.73);
 const hot=light(0xff571b),sun=light(0xffdb89),orchid=light(0xf284ff),astrum=light(0xffcb6b);
 const arcBand=new T.TorusGeometry(1,.055,8,26,Math.PI*1.38);
 const crystal=new T.OctahedronGeometry(1),teal=light(0x34d9cf),riftBlue=light(0x405bf8);
 const ionHalo=new T.MeshBasicMaterial({color:0x34e9ff,transparent:true,opacity:.32,depthWrite:false,blending:T.AdditiveBlending});
 crystal.setIndex(Array.from({length:crystal.attributes.position.count},(_,i)=>i));
+const jade=new T.ShaderMaterial({
+  vertexShader:`varying vec3 norm;varying vec3 pos;void main(){pos=position;norm=normalize(normalMatrix*normal);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+  fragmentShader:`varying vec3 norm;varying vec3 pos;void main(){vec3 n=normalize(norm),p=normalize(pos);
+    float vein=sin(8.*p.y+2.6*sin(p.x*4.+p.z*3.)),edge=pow(1.-abs(n.z),2.);
+    vec3 col=mix(vec3(.015,.16,.17),vec3(.08,.64,.51),.40+.26*vein+.19*n.y);
+    col+=vec3(.3,1.,.90)*(.74*edge+.55*pow(max(dot(n,normalize(vec3(-.4,.68,.63))),0.),30.));
+    gl_FragColor=vec4(col,1.);
+    #include <colorspace_fragment>
+  }`
+});
 function focusProp(kind,part,strand){
   const {g,i}=focus[kind];
   const loop=(mat,r,y,tilt)=>part(ring,mat,0,y,0,r,r,r,tilt,.2*i);
-  if(g===5){
+  if(g===10){
+    const count=[6,3,5,8][i];
+    for(let j=0;j<count;j++){
+      const a=j*2.4,r=.019+.005*(j%3);
+      part(crystal,[sun,lime,blue,orchid][j%4],r*Math.cos(a),.010*j-.021,r*Math.sin(a),.010,.030+.003*j,.009,Math.sin(a)*.55,0,Math.cos(a)*.63);
+    }
+  }else if(g===11){
+    const r=[.054,.045,.051,.040][i];part(sphere,jade,0,0,0,r,r,r);
+    part(sphere,ionHalo,0,0,0,r*1.05,r*1.05,r*1.05);
+    for(let k=0;k<3;k++)part(arcBand,k%2?blue:aqua,0,0,0,r*1.14,r*1.14,r*1.14,.64+k*.85,k*1.2,i*.75);
+    if(i===0 || i===3)for(let j=0;j<5;j++){const a=j*1.257;part(crystal,pearl,.056*Math.cos(a),-.022,.056*Math.sin(a),.005,.016,.005,0,a,.65);}
+  }else if(g===12){
+    if(i===0){
+      part(sphere,purple,0,0,0,.057,.059,.052);
+      for(const s of [-1,1]){part(sphere,orchid,0,0,s*.045,.044,.027,.013);part(sphere,ink,0,0,s*.058,.010,.024,.004);}
+    }
+    for(let k=0;k<(i===0?5:3);k++){
+      const path=Array.from({length:9},(_,j)=>{const u=j/8,a=k*2.09+u*1.7,r=(i===0?.062:.028)*(1-.68*u);return [r*Math.cos(a),.009-u*(i===0?.087:.068),r*Math.sin(a)];});
+      strand(k%2?orchid:purple,path,k%2?.0025:.006);
+    }
+  }else if(g===13){
+    const r=[.033,.054,.051,.041][i];
+    part(sphere,ink,0,0,0,r,r,r);
+    for(let j=0;j<5;j++){const a=j*1.257;
+      strand(j%2?riftBlue:blue,Array.from({length:9},(_,n)=>{const u=n/8,b=a+u*3.5;
+        return [Math.cos(b)*r*(.5+.65*Math.sin(u*Math.PI)),(u-.5)*r*2.5,Math.sin(b)*r];}),j%2?.005:.002);
+    }
+  }else if(g===14){
+    for(let k=0;k<3;k++){const r=.024+k*.010;
+      strand(k===1?blue:pearl,Array.from({length:14},(_,n)=>{const u=n/13,a=k*2.09+u*5.1;return [r*Math.cos(a),(u-.5)*.043,r*Math.sin(a)];}),.0028);
+    }
+  }else if(g===5){
     if(i<2){
       part(i===0?crystal:sphere,steel,0,0,0,.052,.029,.073);
       for(let j=0;j<3;j++){const a=j*2.094;part(box,amber,.032*Math.cos(a),.024,.032*Math.sin(a),.008,.007,.046,0,-a,0);}
@@ -309,13 +355,15 @@ export function authoredHandling(rig,prop,eye,skill){
   // Match the knuckle direction in camera space after solving the two elbows.
   const knuckles=pose?.g>=5?['L','R'].map(s=>[s,rig.getObjectByName(s+'_Hand'),rig.getObjectByName(s+'_Middle1')]).filter(([,w,k])=>w && k):[];
   const wristAt=new T.Vector3(),knuckleAt=new T.Vector3(),pointing=new T.Vector3(),wristTurn=new T.Quaternion(),wristQ=new T.Quaternion();
-  const tips=pose?.g===8?['R','L'].flatMap(s=>['Index','Middle','Ring','Pinky'].flatMap((digit,j)=>{
-    if(pose.i!==0 && s==='L' || pose.i===3 && j>0)return [];
+  const tips=(pose?.g===8 || pose?.g>=10 && pose.g!==11 && !(pose.g===12 && pose.i<2))?['R','L'].flatMap(s=>['Index','Middle','Ring','Pinky'].flatMap((digit,j)=>{
+    if(pose.g===8 && (pose.i!==0 && s==='L' || pose.i===3 && j>0) || pose.g===14 && j>1)return [];
     const bone=rig.getObjectByName(s+'_'+digit+'3');if(!bone)return [];
-    const glow=new T.Mesh(sphere,j===1?sun:blue);
+    const tint=pose.g===10?[lime,sun,aqua,blue][j]:pose.g===12?orchid:pose.g===13?aqua:pose.g===14?pearl:j===1?sun:blue;
+    const glow=new T.Mesh(sphere,tint);
     bone.getWorldScale(knuckleAt);glow.scale.set(.008/knuckleAt.x,.009/knuckleAt.y,.014/knuckleAt.z);
     const end=rig.getObjectByName(s+'_'+digit+'4');if(end)glow.position.copy(end.position).multiplyScalar(.53);
-    const halo=new T.Mesh(sphere,ionHalo);halo.scale.setScalar(1.65);glow.add(halo);bone.add(glow);return [glow];
+    if(pose.g!==8)glow.scale.multiplyScalar(.53);
+    const halo=new T.Mesh(sphere,ionHalo);halo.scale.setScalar(pose.g===8?1.65:1.14);glow.add(halo);bone.add(glow);return [glow];
   })):[];
   const pointBones=pose?.g===8 && pose.i===3?[1,2].map(n=>[rig.getObjectByName('R_Index'+n),rig.getObjectByName('R_Index'+(n+1))]).filter(([a,b])=>a && b):[];
   for(const [joint] of pointBones)if(!joints.includes(joint)){joints.push(joint);saved.push(new T.Quaternion());}
@@ -349,6 +397,11 @@ export function authoredHandling(rig,prop,eye,skill){
         other.set(at.x+.45-run*.12+release*(i===0?.12:0),at.y-.15-lower-run*.047,at.z-.205);
         for(const tip of tips)tip.visible=true;
       }
+      if(g===10){target.x+=release*.12;target.y+=.050;other.y+=i===3?.095:.035;other.x+=i===3?release*.12:0;}
+      if(g===11){const gather=i===3?.18:.096;target.set(at.x+.44+release*.14,at.y-.15-lower+release*.074,at.z+side*gather);other.set(at.x+.43+release*.12,at.y-.13-lower,at.z-side*gather);}
+      if(g===12){target.y+=i===0?.048:.076;other.y+=i>=2?.067:0;other.z-=side*release*.041;target.x+=i===1?-release*.12:release*.066;}
+      if(g===13){target.y+=.062;other.y+=.042;target.z-=side*(i===1?.113:.035);other.z+=side*(i===3?.112:.018);other.x+=i===1?.105*release:0;}
+      if(g===14){target.x+=release*.13;other.y+=(i===1?.11:.02)*release;target.z-=side*(i===1?.26*release:.021);}
       if(g===9){target.y+=.039;other.z+=side*.034;target.x+=release*.081;}
     }
     if(wrist==='R'){right(target,rightPole);left(other,leftPole);}else{left(target,leftPole);right(other,rightPole);}
@@ -361,6 +414,13 @@ export function authoredHandling(rig,prop,eye,skill){
       if(group===7)pointing.set(.45+.54*release,lead?.56:.29,-sign*.50);
       if(group===8)pointing.set(slot===3 && lead?1:.76,slot===3 && lead?.02:slot===0?.55:.13,-sign*(slot===3 && lead?.16:.42));
       if(group===9)pointing.set(.56+.35*release,lead?.48:.13,-sign*(lead?.46:.61));
+      if(group>=10){
+        if(group===10)pointing.set(.75,.40+release*.32,-sign*.36);
+        if(group===11)pointing.set(.42+.35*release,.19+slot*.06,-sign*.86);
+        if(group===12)pointing.set(.56,slot===0?.80:.47,-sign*(.24+.29*release));
+        if(group===13)pointing.set(.46+release*.42,.63,-sign*(slot===3?.84:.41));
+        if(group===14)pointing.set(.9,slot===1?-.23:.22,-sign*(slot===1?.86:.25));
+      }
       wristTurn.setFromUnitVectors(knuckleAt,pointing.normalize());w.getWorldQuaternion(wristQ);w.parent.getWorldQuaternion(parentQ);
       w.quaternion.copy(parentQ.invert().multiply(wristTurn).multiply(wristQ));
     }
@@ -374,6 +434,11 @@ export function authoredHandling(rig,prop,eye,skill){
         if(pose.g===6 && pose.i===2)curl=.49-release*.28;
         if(pose.g===7)curl=/Thumb|Index/.test(f.name)?.05:.24;
         if(pose.g===8)curl=pose.i===3 && f.name.startsWith('R_')?(/Index/.test(f.name)?-.39:.56):pose.i===2?.34:-.11;
+        if(pose.g===10)curl=/Index|Middle/.test(f.name)?-.22:.12;
+        if(pose.g===11)curl=/Pinky|Ring/.test(f.name)?.27:.08;
+        if(pose.g===12)curl=pose.i===0?.36:pose.i===1?.16+release*.4:.04;
+        if(pose.g===13)curl=/Index/.test(f.name)?.06:.41-release*.24;
+        if(pose.g===14)curl=/Thumb|Index/.test(f.name)?-.21:.07;
         curl-=release*.16;
       }
       f.rotateX(curl);
@@ -392,6 +457,7 @@ export function authoredHandling(rig,prop,eye,skill){
       target.x+=drone?.029:.016;target.y+=drone?.068:shade?.094:.056;
       target.z-=side*.012;
     }
+    if(pose?.g===11){target.z-=side*.062;target.y+=.028;}
     prop.position.copy(rig.worldToLocal(target));
     rot.set(brace?-.25:-.08,shade?Math.PI/2+.15:brace?-Math.PI/2:drone?Math.PI/2:Math.PI/2+.23,brace?-.18:.07);
     forwardQ.setFromEuler(rot);rig.getWorldQuaternion(parentQ);prop.quaternion.copy(parentQ.invert().multiply(forwardQ));

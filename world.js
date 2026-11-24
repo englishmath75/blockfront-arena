@@ -18,6 +18,7 @@ const block = new T.BoxGeometry(1, 1, 1);
 const ray = new T.Raycaster();
 const box = new T.Box3();
 const rayHit = new T.Vector3();
+const wallRay=new T.Ray(),wallOrigin=new T.Vector3(),upright=new T.Vector3(0,1,0);
 const material = (color) => new T.MeshLambertMaterial({ color });
 const solid = (color) => new T.MeshBasicMaterial({ color });
 function mesh(mat, x, y, z, w, h, d) {
@@ -369,8 +370,7 @@ export function createWorld(canvas, data) {
       (d) =>
         (d.type === 'wall' || d.type === 'meshPanel' && clock>=(d.start??0)) &&
         y < (d.y ?? 0) + d.h &&
-        Math.abs(x - d.x) < d.w / 2 + radius &&
-        Math.abs(z - d.z) < d.d / 2 + radius &&
+        (d.kind==='jadeWall'?inside(d,x,z,radius):Math.abs(x-d.x)<d.w/2+radius && Math.abs(z-d.z)<d.d/2+radius) &&
         y + top > (d.y ?? 0),
     );
   }
@@ -434,8 +434,10 @@ export function createWorld(canvas, data) {
       }
       if (d.type === 'plane' && clock >= (d.start ?? 0) && (vision || d.bulletWall))
         distance = shieldHit(line, d, distance);
-      if (d.type === 'wall' || (!vision && result && d.hp>0 && (d.kind!=='focusOrb' || result.shooter===d.owner) && (d.kind!=='decoy' || d.team!==result.team))) {
-        const t = hitBox(line, d.x, d.y ?? 0, d.z, d.w, d.h, d.d);
+      if (d.type === 'wall' || (!vision && result && d.hp>0 && (d.kind!=='omenShade' || d.start<=clock && result.team!==d.team) && (d.kind!=='focusOrb' || result.shooter===d.owner) && (d.kind!=='decoy' || d.team!==result.team))) {
+        const rotated=d.kind==='jadeWall' && d.theta;
+        if(rotated){wallRay.origin.copy(line.origin).sub(wallOrigin.set(d.x,d.y,d.z)).applyAxisAngle(upright,-d.theta);wallRay.direction.copy(line.direction).applyAxisAngle(upright,-d.theta);}
+        const t=rotated?hitBox(wallRay,0,0,0,d.w,d.h,d.d):hitBox(line,d.x,d.y??0,d.z,d.w,d.h,d.d);
         if (t < distance) {
           distance = t;
           if (result) {

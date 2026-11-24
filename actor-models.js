@@ -150,7 +150,7 @@ export function attachProp(parent, slug, size, animated=false) {
     })
     .catch(() => {});
 }
-export function character(parent, name) {
+export function character(parent,name,spectral=null) {
   const ref = agents[name];
   const gripRotation=new T.Quaternion(),bodyRotation=new T.Quaternion(),aimRotation=new T.Quaternion();
   const aimEuler=new T.Euler(0,0,0,'XYZ');
@@ -173,6 +173,8 @@ export function character(parent, name) {
         body = cloneRig(g.scene);
         body.traverse((o) => {
           if (!o.isMesh) return;
+          if(spectral){const surface=o.material.clone?.()??new T.MeshStandardMaterial();
+            surface.color?.set(spectral.shade);surface.emissive?.set(spectral.glow);surface.transparent=true;surface.opacity=.78;surface.depthWrite=false;o.material=surface;}
           const originals = [o.material].flat(),
             glow = originals.map((m) => {
               const copy = m.clone();
@@ -206,7 +208,7 @@ export function character(parent, name) {
         right = body.getObjectByName('R_Thigh');
       })
       .catch(() => {});
-  const castAgents=new Set(['게코','페이드','브리치','데드록','테호','브림스톤','아이소','클로브','네온','요루']);
+  const castAgents=new Set(['게코','페이드','브리치','데드록','테호','브림스톤','아이소','클로브','네온','요루','웨이레이','세이지','레이나','오멘','제트']);
   const animate = (time, stride, revealed = false, weaponKey, skin, attack, pitch=0,skill) => {
     const utility=castAgents.has(name)?skill:null;
     const stamp = utility?'skill/'+utility:(weaponKey ?? '') + '/' + (skin?.profileKey ?? '');
@@ -247,6 +249,7 @@ export function character(parent, name) {
       if (revealed !== outlined) {
         outlined = revealed;
         for (const { mesh, original, glow } of parts) {
+          if(revealed)for(const m of [glow].flat()){m.depthTest=revealed==='empress';m.emissive?.set(revealed==='empress'?0xf42562:0xe85d35);}
           mesh.material = revealed ? glow : original;
           mesh.renderOrder = revealed ? 12 : 0;
         }
@@ -274,7 +277,7 @@ export function character(parent, name) {
     disposeHeld = null;
     held?.removeFromParent();
     mixer?.stopAllAction();
-    for (const row of parts) for (const glow of [row.glow].flat()) glow.dispose();
+    for(const row of parts){for(const glow of [row.glow].flat())glow.dispose();if(spectral)for(const base of [row.original].flat())base.dispose();}
   };
   animate.ready=ready;
   return animate;
@@ -720,6 +723,9 @@ export function firstPerson() {
         cam.translateX(-sample[0] * 0.38);
         cam.translateY(sample[1] * 0.22);
         cam.rotateZ(sample[2] * 0.55);
+      }
+      if(skill && ['웨이레이','세이지','레이나','오멘','제트'].includes(p.agent)){
+        cam.position.x-=.11;cam.position.y-=.026;
       }
       if(!p.ads && !skill){
         const handling=tag==='reload'||tag==='inspect'?Math.sin(Math.PI*ratio):0;

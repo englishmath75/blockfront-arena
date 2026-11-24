@@ -245,6 +245,8 @@ export function accessHint(name, charge, bounces, marks) {
   if (name === '인도하는 빛') return '좌클릭 유지로 매 유도 · E로 섬광 폭발';
   if (name === '불길') return '좌클릭 유지 · 시선으로 불벽 유도';
   if (name === '커브볼') return '좌클릭 왼쪽 · 우클릭 오른쪽';
+  if(name==='어둠의 발자국')return '도착 지점을 조준하고 좌클릭';
+  if(name==='광속')return '좌클릭 두 번 돌진 · 우클릭 한 번 돌진';
   if (shortThrows.includes(name)) return '좌클릭 멀리 던지기 · 우클릭 가깝게 던지기';
   return '좌클릭 사용 · 무기 키로 취소';
 }

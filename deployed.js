@@ -70,6 +70,8 @@ export function updatePilot(p, keys, dt, world, devices) {
 export function distanceTarget(w, p, yaw, pitch, meters) {
   const x = p.x - Math.sin(yaw) * meters,
     z = p.z - Math.cos(yaw) * meters,
-    y = w.structure.support(x, z, p.y + 3 + Math.sin(pitch) * meters);
+    limit=p.y+3+Math.sin(pitch)*meters;
+  let y=w.structure.support(x,z,limit);
+  if(!Number.isFinite(y) && p.agent==='오멘' && limit<p.y+3)y=w.structure.support(x,z,p.y+3);
   return Number.isFinite(y) ? { x, y, z } : null;
 }

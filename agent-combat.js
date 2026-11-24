@@ -7,9 +7,10 @@ export function damageCredit(victim,attacker,now){
   if(!attacker || victim===attacker || victim.team===attacker.team)return;
   (victim.damageLedger??={})[attacker.id]=now;
 }
-export function eliminationRewards(victim,killer,players,now,spawn){
+export function eliminationRewards(victim,killer,players,now,spawn,soul){
   for(const p of players){
     if(p===victim || p.down || p.team===victim.team || !(p===killer || victim.damageLedger?.[p.id]>=now-5))continue;
+    if(p.agent==='레이나' && (p.empress || p.charges?.[2]>0) && (p===killer || victim.damageLedger?.[p.id]>=now-3))soul?.(p);
     if(p.agent==='클로브'){p.pickupUntil=now+5;p.pickupTarget={x:victim.x,y:victim.y,z:victim.z};p.mustKillBy=0;}
     if(p.agent==='아이소' && p.focusUntil>now)spawn(p,victim);
     if(p===killer && p.agent==='네온' && p.slideStock===0 && ++p.slideKills>=2){p.slideStock=1;p.slideKills=0;}

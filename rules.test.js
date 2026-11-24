@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {startRefraction,moveRefraction,startShade,tickShade,dashDirection} from './radiant-actions.js';
 import {toxicPath,toxinContact,applyToxin,separatedByDivide,kineticPull} from './agent-utilities.js';
 import {visionDistance} from './field-effects.js';
 import {tickNest,tickHunterBeam,owlPing,domeBoundary} from './deployed-fields.js';
@@ -534,4 +535,31 @@ test('every competitive map has passable spawns and sites on its connected floor
         assert(open(cell(x), cell(z)), map.name);
       }
   }
+});
+
+test('Refract enforces the armed window and moves continuously to the stored beacon',()=>{
+  const p={x:15,y:4,z:12,nextShot:0},beacon={x:0,y:1,z:0,start:2,end:10};
+  assert.equal(startRefraction(p,beacon,1.99),false);
+  assert.equal(startRefraction(p,beacon,2),true);
+  const {start,end}=p.refracting;assert.equal(p.phaseUntil,end);
+  moveRefraction(p,(start+end)/2);assert(Math.abs(p.x-7.5)<.001);
+  moveRefraction(p,end);assert.deepEqual([p.x,p.y,p.z,p.refracting],[0,1,0,null]);assert(p.nextShot>end);
+  assert.equal(startRefraction(p,beacon,10),false);
+});
+test('a destroyed Omen shade returns its owner and a completed one keeps the destination',()=>{
+  for(const destroyed of [true,false]){
+    const p={x:1,y:0,z:1,nextShot:0},shade={id:3,x:8,y:4,z:6,hp:1};
+    startShade(p,shade,3);tickShade(p,shade,4,true);assert.equal(p.x,1);
+    tickShade(p,shade,4.5);assert.equal(p.x,8);assert.equal(p.phaseUntil,7);
+    if(destroyed)shade.hp=0;tickShade(p,shade,destroyed?5:7);
+    assert.equal(p.x,destroyed?1:8);assert.equal(p.shadowCast,null);assert.equal(p.phaseUntil,0);
+  }
+});
+test('Reyna gets her own three-second assist orb and Jett dashes in the current input direction',()=>{
+  const recent={id:'r',agent:'레이나',team:'a',charges:[0,1,1]},late={...recent,id:'l'},killer={id:'k',team:'a'};
+  const victim={team:'b',damageLedger:{r:7,l:6.99}},orbs=[];
+  eliminationRewards(victim,killer,[recent,late,killer,victim],10,()=>{},p=>orbs.push(p.id));
+  assert.deepEqual(orbs,['r']);
+  const [x,z]=dashDirection(0,new Set(['KeyD']),0,-6);
+  assert.equal(x,1);assert(Math.abs(z)<.001);
 });
