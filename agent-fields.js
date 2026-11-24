@@ -251,8 +251,8 @@ export function tickField(d, owner, dt, ctx) {
   }
   if(d.kind==='sonic-sensor'){
     if(owner.down || owner.suppressed>time){delete d.triggerAt;return true;}
-    const noisy=p=>p.shot>0 && p.shot>time-.35 || p.reloading>time || p.channel || Math.abs(p.vy)>.8 ||
-      p.mode==='run' && Math.hypot(p.vx,p.vz)>2;
+    const noisy=p=>p.shot>0 && p.shot>time-.35 || p.reloading>time || p.channel || !(p.quietUntil>time) && (Math.abs(p.vy)>.8 ||
+      p.mode==='run' && Math.hypot(p.vx,p.vz)>2);
     if(!d.triggerAt && close.some(p=>sensorArea(d,p) && noisy(p)))d.triggerAt=time+stat.windup;
     if(d.triggerAt && time>=d.triggerAt){
       for(const p of players)if(!p.down && sensorArea(d,p))p.tag=time+stat['concuss duration'];

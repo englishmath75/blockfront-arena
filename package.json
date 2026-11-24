@@ -1,13 +1,13 @@
 {
   "name": "blockfront",
   "private": true,
-  "version": "1.12.0",
+  "version": "1.13.0",
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
     "dev": "vite --host 127.0.0.1 --port 5174",
     "build": "vite build",
-    "test": "node --test rules.test.js world.test.js",
+    "test": "node --test rules.test.js world.test.js secrets.test.js",
     "lan": "npm run build && vite preview --host 0.0.0.0 --port 5176 --strictPort"
   },
   "dependencies": {

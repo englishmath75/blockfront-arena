@@ -17,6 +17,7 @@ export function lobby(map, mode) {
     btn('home', '플레이', 'active') +
     btn('agents', '요원') +
     btn('collection', '컬렉션') +
+    btn('secrets','발견 수첩') +
     '</nav>' +
     btn('settings', '설정') +
     '</header>' +
