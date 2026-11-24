@@ -196,7 +196,6 @@ function focusProp(kind,part,strand){
     }
   }else if(g===11){
     const r=[.054,.045,.051,.040][i];part(sphere,jade,0,0,0,r,r,r);
-    part(sphere,ionHalo,0,0,0,r*1.05,r*1.05,r*1.05);
     for(let k=0;k<3;k++)part(arcBand,k%2?blue:aqua,0,0,0,r*1.14,r*1.14,r*1.14,.64+k*.85,k*1.2,i*.75);
     if(i===0 || i===3)for(let j=0;j<5;j++){const a=j*1.257;part(crystal,pearl,.056*Math.cos(a),-.022,.056*Math.sin(a),.005,.016,.005,0,a,.65);}
   }else if(g===12){
@@ -398,7 +397,7 @@ export function authoredHandling(rig,prop,eye,skill){
         for(const tip of tips)tip.visible=true;
       }
       if(g===10){target.x+=release*.12;target.y+=.050;other.y+=i===3?.095:.035;other.x+=i===3?release*.12:0;}
-      if(g===11){const gather=i===3?.18:.096;target.set(at.x+.44+release*.14,at.y-.15-lower+release*.074,at.z+side*gather);other.set(at.x+.43+release*.12,at.y-.13-lower,at.z-side*gather);}
+      if(g===11){const gather=i===3?.20:.15;target.set(at.x+.49+release*.14,at.y-.21-lower+release*.074,at.z+side*gather);other.set(at.x+.48+release*.12,at.y-.050-lower,at.z-side*gather);}
       if(g===12){target.y+=i===0?.048:.076;other.y+=i>=2?.067:0;other.z-=side*release*.041;target.x+=i===1?-release*.12:release*.066;}
       if(g===13){target.y+=.062;other.y+=.042;target.z-=side*(i===1?.113:.035);other.z+=side*(i===3?.112:.018);other.x+=i===1?.105*release:0;}
       if(g===14){target.x+=release*.13;other.y+=(i===1?.11:.02)*release;target.z-=side*(i===1?.26*release:.021);}

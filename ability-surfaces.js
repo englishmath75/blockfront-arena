@@ -19,9 +19,24 @@ void main(){
     float phase=sin(v.x*18.+v.y*8.+sin(v.y*7.-t*1.7));
     float ribbon=filament(v.y*3.+v.x*.9+.20*phase-t*.55,.034);
     if(style==65.){
-      vec2 q=v*vec2(6.,4.);q.x+=sin(q.y*2.6+q.x*.91)*.36;float facet=fract(q.x*.83+floor(q.y+q.x*.38)*.27);
-      float crack=filament(q.x+q.y*.46+.12*sin(q.y*7.),.020);
-      c=mix(vec3(.014,.29,.33),vec3(.18,.88,.69),.19+.55*v.y+.24*facet)+vec3(.18,.43,.42)*crack*(.28+front*.6);a=1.;
+      // Slightly different cut faces on each block keep the four breakable sections readable.
+      float seed=floor(front*.5),fortified=mod(front,2.);
+      vec2 q=v*vec2(2.8,2.3)+vec2(2.71*seed,.63*seed);
+      vec2 cell=floor(q),f=fract(q);float near1=9.,near2=9.,facet=0.;
+      for(int j=-1;j<=1;j++)for(int i=-1;i<=1;i++){
+        vec2 off=vec2(float(i),float(j)),id=cell+off;
+        vec2 jitter=fract(sin(vec2(dot(id,vec2(127.1,311.7)),dot(id,vec2(269.5,183.3))))*4375.5453);
+        vec2 diff=off+.19+.62*jitter-f;float dd=dot(diff,diff);
+        if(dd<near1){near2=near1;near1=dd;facet=jitter.x;}else near2=min(near2,dd);
+      }
+      float edge=1.-smoothstep(.002,.036,near2-near1),h=local.y+.5;
+      float seam=smoothstep(.0,.025,min(v.x,1.-v.x));
+      vec3 base=mix(vec3(.013,.051,.097),vec3(.012,.43,.245),smoothstep(-.15,.87,h));
+      c=base*(.71+.30*facet+.12*sin(2.7*v.x+h*2.3))*(.47+.53*seam);
+      c+=vec3(.10,.28,.20)*edge*(.13+.23*fortified)*(.2+.8*h);
+      c+=vec3(.06,.35,.24)*smoothstep(.89,1.,h);
+      if(abs(local.x)>.499)c*=.78;
+      a=1.;
     }else if(style==66.){
       c=mix(vec3(.04,.025,.12),vec3(.24,.16,.42),.39+.36*phase+.14*sin(v.y*24.+phase));a=1.;
     }else if(style==67.){
@@ -484,7 +499,7 @@ export function presentAbility(d,now){
   mesh.visible=true;
   if(style>=65){
     const span=d.radius?d.radius*2:d.w;
-    if(style===65){const grow=saturate(age/.65,.012,1);mesh.scale.set(d.w,d.h*grow,d.d);mesh.position.set(d.x,d.y+d.h*grow/2,d.z);mesh.rotation.y=d.angle??0;uniforms.front.value=d.fortify?0:1;}
+    if(style===65){const grow=saturate(age/.65,.012,1);mesh.scale.set(d.w,d.h*grow,d.d);mesh.position.set(d.x,d.y+d.h*grow/2,d.z);mesh.rotation.y=d.angle??0;uniforms.front.value=(d.panel??0)*2+(d.fortify?0:1);}
     else if(style===66 || style===67){
       const travel=style===66 && dt<0, v=travel?saturate(age/Math.max(.01,d.start-d.born-1),0,1):1;
       const grow=travel?.035:saturate(dt/(style===67?.6:.18),.035,1);

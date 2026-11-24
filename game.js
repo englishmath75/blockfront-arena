@@ -2451,7 +2451,7 @@ function ability(i, p = match.player, params = {}) {
         x = pt.x + n * Math.cos(angle),
         z = pt.z - n * Math.sin(angle);
       const d = addDevice('wall', x, z, p.team, 40, 2.6, 1.5, 2.7, '#79d9d1', p, ground);
-      Object.assign(d,{hp:400,kind:'jadeWall',angle,theta:angle,name,cueAt:k===0?now+stat['time taken to fortify']:undefined});
+      Object.assign(d,{hp:400,kind:'jadeWall',panel:k,angle,theta:angle,name,cueAt:k===0?now+stat['time taken to fortify']:undefined});
       d.fortify = now + stat['time taken to fortify'];
       for (const o of match.players)
         if (
