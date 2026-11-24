@@ -23,7 +23,7 @@ export function parseCrosshair(code) {
 export function reticle(canvas,profile,{color='#80ffcf',ads=false,sniper=false,move=0,fire=0}={}){
   const ctx=canvas.getContext('2d'),n=canvas.width/2;
   const cfg=sniper?profile?.S:ads && profile && profile.global.a!==0 && Object.keys(profile.A).length?profile.A:profile?.P;
-  const c=cfg??{},colorId=Math.round(c.c??0);
+  const c=cfg??{},colorId=Math.round(c.c??(sniper?7:0));
   const ink=cfg?(colorId===8?c.u??'#ffffff':colors[colorId]??'#ffffff'):color;
   const key=[JSON.stringify(c),ink,ads,sniper,Math.round(move),Math.round(fire)].join('/');
   if(canvas.dataset.draw===key)return;

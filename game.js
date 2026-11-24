@@ -99,7 +99,10 @@ import {
 import skinCatalog from './skins.json' with { type: 'json' };
 import { effects } from './powers.js';
 import { PlayerRoom } from './room-client.js';
-import { agentCards, armory, collection, lobby, settingsForm, gunDetail, escape } from './interface.js';
+import {settingsPanel} from './settings-panel.js';
+import {normalizePreferences,inputCode,keyName,mixVolume} from './preferences.js';
+import {voiceChat} from './voice-chat.js';
+import { agentCards, armory, collection, lobby, gunDetail, escape } from './interface.js';
 const get = (id) => document.getElementById(id),
   canvas = get('world'),
   menu = get('menu'),
@@ -142,8 +145,34 @@ function syncDiscoveries(p){
   for(const id of [...(Array.isArray(saved)?saved:[]),...fresh])if(Object.hasOwn(secretCatalog,id))knownSecrets.add(id);
   save('discoveries',[...knownSecrets]);
 }
-let settings = { sens: 1, volume: 0.7, color: '#80ffcf', dynamic: true, ...stored('settings', {}) };
-let reticleProfile=parseCrosshair(settings.crosshairCode), zoomStep=0;
+const settings=normalizePreferences(stored('settings',{}));
+function keyHint(line){
+  const labels={Shift:'ShiftLeft',Ctrl:'ControlLeft',Space:'Space',Tab:'Tab'};
+  return line.replace(/\[(?:([A-Z1-4])(?= |\]))|\b(Shift|Ctrl|Space|Tab)\b|\b([CQEX])(?=로|를| 키)/g,(src,bracket,mod,skill)=>{
+    const symbol=bracket??skill;
+    const code=mod?labels[mod]:/\d/.test(symbol)?'Digit'+symbol:'Key'+symbol;
+    if(!settings.keys[code])return src;
+    return (bracket?'[':'')+keyName(settings.keys[code]);
+  });
+}
+let reticleProfile=parseCrosshair(settings.profiles[settings.selected].code),zoomStep=0,settingsView=null,voiceTimer;
+const settingsPage={page:'general',sub:{}};
+const volumeFor=channel=>mixVolume(settings,channel);
+const voice=voiceChat({preferences:()=>settings,client:()=>room,playback:()=>audio,status:(message,ms)=>{
+  const el=get('voice-readout');clearTimeout(voiceTimer);el.textContent=message;el.hidden=!message;
+  if(ms)voiceTimer=setTimeout(()=>{el.hidden=true;},ms);
+}});
+function savePreferences(){
+  reticleProfile=parseCrosshair(settings.profiles[settings.selected].code);
+  world?.configureGraphics(settings);hud.classList.toggle('vignette',settings.vignette);voice.refresh();save('settings',settings);
+}
+function previewAudio(channel){
+  soundOn();
+  if(channel==='dialogue'){
+    const file=voices['지원봇']?.[0];if(file){const clip=new Audio('/agent-voice/'+file);clip.volume=volumeFor('dialogue')*.65;void clip.play().catch(()=>{});}
+  }else if(channel==='interface')secretChime(audio,volumeFor('interfaceVolume')*.65,true);
+  else if(audio && volumeFor('effects'))fieldAudio(audio,'hit-impact',volumeFor('effects')*.55);
+}
 function toggleZoom(){
   const id=heldWeapon(match.player).id;
   if(!weaponFor(match.player).ads || match.player.reloading)return;
@@ -281,9 +310,10 @@ function currentSkin(p) {
 function playSkillCue(at, name, phase) {
   const file = skillAudio[name]?.[phase];
   if(at && separatedByDivide(match.player,at,match.devices,now))return true;
-  if (!file || !settings.volume || (at !== match.player && match.player.deafUntil > now)) return false;
+  if(!file)return false;
+  if(!volumeFor('effects') || at!==match.player && match.player.deafUntil>now)return true;
   const clip = new Audio('/agent-sfx/' + file);
-  clip.volume = Math.min(1, (settings.volume * 0.76) / (1 + range(match.player, at) * 0.13));
+  clip.volume = Math.min(1, (volumeFor('effects') * 0.76) / (1 + range(match.player, at) * 0.13));
   void clip.play().catch(() => {});
   return true;
 }
@@ -291,13 +321,14 @@ function abilityVoice(p, name) {
   if (p !== match.player && match.player.deafUntil > now) return;
   if (playSkillCue(p, name, 'cast')) return;
   const list = voices[name];
-  if (!list?.length || !settings.volume) return;
+  if (!list?.length || !volumeFor('dialogue')) return;
   const clip = new Audio('/agent-voice/' + list[Math.floor(Math.random() * list.length)]);
-  clip.volume = Math.max(0, Math.min(1, (settings.volume * 0.48) / (1 + range(match.player, p) * 0.13)));
+  clip.volume = Math.max(0, Math.min(1, (volumeFor('dialogue') * 0.48) / (1 + range(match.player, p) * 0.13)));
   void clip.play().catch(() => {});
 }
 function sound(kind, at) {
-  if(!settings.volume)return;
+  const level=volumeFor(['kill','hit','objective'].includes(kind)?'interfaceVolume':'effects');
+  if(!level)return;
   if (at && match?.player && (match.player.deafUntil>now && at!==match.player || separatedByDivide(match.player,at,match.devices,now)))return;
   if (
     !at &&
@@ -316,7 +347,7 @@ function sound(kind, at) {
             : kind === 'inspect'
               ? inspectLength(heldWeapon(p).id, currentSkin(p))
               : 0.5,
-        settings.volume * 0.82,
+        level * 0.82,
         audio,heldWeapon(p).id,
       )
     )
@@ -330,7 +361,7 @@ function sound(kind, at) {
         currentSkin(at),
         kind,
         kind === 'reload' ? at.reloadDuration || weaponFor(at).reload : 0.5,
-        (settings.volume * 0.82) / (1 + dist * 0.32),
+        (level * 0.82) / (1 + dist * 0.32),
         audio,heldWeapon(at).id,
         Math.max(-1,Math.min(1,((at.x-match.player.x)*Math.cos(match.player.yaw)-(at.z-match.player.z)*Math.sin(match.player.yaw))/7)),
       )
@@ -341,8 +372,8 @@ function sound(kind, at) {
   const p = match?.player;
   const dist = at && p ? range(p, at) : 0;
   if (dist > 18) return;
-  if(kind==='hit'){fieldAudio(audio,'hit-impact',settings.volume*.22/(1+dist*.32));return;}
-  if(kind==='equip'||kind==='inspect'){playHandling(audio,kind,settings.volume);return;}
+  if(kind==='hit'){fieldAudio(audio,'hit-impact',level*.22/(1+dist*.32));return;}
+  if(kind==='equip'||kind==='inspect'){playHandling(audio,kind,level);return;}
   if (['shot', 'reload'].includes(kind) && p) {
     const source = at?.kit ? at : p,
       id = heldWeapon(source)?.id;
@@ -350,7 +381,7 @@ function sound(kind, at) {
       ? Math.max(-1, Math.min(1, ((at.x - p.x) * Math.cos(p.yaw) - (at.z - p.z) * Math.sin(p.yaw)) / 7))
       : 0;
     if(kind==='shot' && (id==='tour'||id==='headhunter') && playSkillCue(source,id==='tour'?'역작':'헤드헌터','impact'))return;
-    if (playBase(audio, id, kind, (settings.volume * 0.82) / (1 + dist * 0.32), balance)) return;
+    if (playBase(audio, id, kind, (level * 0.82) / (1 + dist * 0.32), balance)) return;
   }
   const gain = audio.createGain();
   const pan = audio.createStereoPanner();
@@ -364,7 +395,7 @@ function sound(kind, at) {
       ? Math.max(-1, Math.min(1, ((at.x - p.x) * Math.cos(p.yaw) - (at.z - p.z) * Math.sin(p.yaw)) / 7))
       : 0;
   gain.connect(pan).connect(audio.destination);
-  gain.gain.setValueAtTime(Math.max(0.0001, volume * settings.volume * 0.82), time);
+  gain.gain.setValueAtTime(Math.max(0.0001, volume * level * 0.82), time);
   gain.gain.exponentialRampToValueAtTime(0.001, time + 0.145);
   const texture = kind === 'shot' || kind === 'step';
   const source = texture ? audio.createBufferSource() : audio.createOscillator();
@@ -787,7 +818,7 @@ function fieldSound(event,at) {
   const self=match.player, distance=range(self,at);
   if(distance>38 || (at!==self && self.deafUntil>now) || separatedByDivide(self,at,match.devices,now))return;
   const pan=distance<.1?0:((at.x-self.x)*Math.cos(self.yaw)-(at.z-self.z)*Math.sin(self.yaw))/distance;
-  fieldAudio(audio,event,settings.volume*.8/(1+distance*.12),pan);
+  fieldAudio(audio,event,volumeFor('effects')*.8/(1+distance*.12),pan);
 }
 function footSound(p,ice) {
   if(p.quietUntil>now)return;
@@ -1035,7 +1066,7 @@ function eliminate(p, attacker, attack) {
     count: attacker.roundKills,
     variant: skin?.variants?.findIndex((v) => v.id === skin.variant) + 1 || 0,
   };
-  if (attacker.local && !killBanner(attacker.lastKill, settings.volume)) sound('kill');
+  if (attacker.local && !killBanner(attacker.lastKill, volumeFor('interfaceVolume'))) sound('kill');
   if (
     attacker !== p &&
     match.players.filter((o) => hostile(attacker, o) && !o.down && o !== p).length === 0 &&
@@ -1109,7 +1140,7 @@ function presentStrike(p) {
   const e = p.strike;
   if (!e) return;
   const near = p.local ? 0 : range(match.player, p),
-    volume = (settings.volume * 0.82) / (1 + near * 0.32);
+    volume = (volumeFor('effects') * 0.82) / (1 + near * 0.32);
   if (e.weapon === 'melee' || e.weapon === 'blades') {
     if (near < 28) {
       const custom =
@@ -1540,9 +1571,9 @@ function addDevice(type, x, z, team, duration, w, d, h, color, owner, baseY) {
         Math.abs(v.born - now) < 0.08,
     )
   )
-    recordedEffect('neon', settings.volume / (1 + range(match.player, device) * 0.12));
+    recordedEffect('neon', volumeFor('effects') / (1 + range(match.player, device) * 0.12));
   if (type === 'dronePulse')
-    recordedEffect('tejo-pulse', settings.volume / (1 + range(match.player, device) * 0.12));
+    recordedEffect('tejo-pulse', volumeFor('effects') / (1 + range(match.player, device) * 0.12));
   return device;
 }
 function fieldContext() {
@@ -2659,7 +2690,7 @@ function ability(i, p = match.player, params = {}) {
   if (i === 3) p.ult = 0;
   abilityVoice(p, name);
   if (p.local) {
-    if (name === '잠입 드론') recordedEffect('tejo', settings.volume);
+    if (name === '잠입 드론') recordedEffect('tejo', volumeFor('effects'));
     else if (name !== '추월 차선' && !skillAudio[name]?.cast) sound('ability');
     announce(name);
   }
@@ -3834,7 +3865,7 @@ function drawWorld(realTime) {
     world.stopFinishSound?.();
     world.stopFinishSound = recordedEffect(
       'finish-' + match.endFx.family,
-      settings.volume / (1 + range(match.player, match.endFx) * 0.09),
+      volumeFor('effects') / (1 + range(match.player, match.endFx) * 0.09),
       () => now-start,
     );
     world.finishFx?.update(Infinity);
@@ -4275,19 +4306,19 @@ function showSecretCues(p){
   if(found && secretCatalog[found.id] && now-found.at<4.25){
     label=secretCatalog[found.id].title+' · '+found.bonus;kind='found';
     const key=p.id+'|'+found.id+'|'+found.at;
-    if(key!==heardDiscovery){heardDiscovery=key;secretChime(audio,settings.volume*.65,true);}
+    if(key!==heardDiscovery){heardDiscovery=key;secretChime(audio,volumeFor('interfaceVolume')*.65,true);}
   }else if(skill && armedSkill!==null && armedName()===skill.skill && now-hold.since>1.4){
     const progress=(now-hold.since)/skill.hold;
     if(progress>=1){
       label=({frost:'구슬 표면에 서리가 한 겹 더 맺혔다',echo:'활시위에서 세 번째 울림이 느껴진다',dusk:'손안의 그늘이 짙어졌다'})[hold.id];
       const key=hold.id+'|'+hold.since;
-      if(key!==heardCharge){heardCharge=key;secretChime(audio,settings.volume*.45);}
+      if(key!==heardCharge){heardCharge=key;secretChime(audio,volumeFor('interfaceVolume')*.45);}
     }else label='작은 공명  '+ '◆'.repeat(Math.min(3,Math.floor(progress*4)))+'◇'.repeat(4-Math.min(3,Math.floor(progress*4)));
   }
   const relic=match.devices.find(d=>d.type==='relic' && !d.claimed && d.end>now);
   if(!p.down && !(p.deafUntil>now) && active() && relic && range(p,relic)<5 && Math.abs(relic.y-p.y)<1.5){
     if(heardRelic!==relic.id && hasSight({...relic,y:relic.y+.3},p,5.3)){
-      heardRelic=relic.id;secretChime(audio,settings.volume*.32);
+      heardRelic=relic.id;secretChime(audio,volumeFor('interfaceVolume')*.32);
     }
   }else heardRelic=null;
   if(secretToast.textContent!==label){secretToast.textContent=label;secretToast.dataset.kind=kind;secretToast.hidden=!label;}
@@ -4437,7 +4468,7 @@ function drawHud() {
         '<div><img alt="" src="' +
         skillIcon(p.agent, i) +
         '"><kbd>' +
-        slot +
+        keyName(settings.keys['Key'+slot]) +
         '</kbd> ' +
         (practice() ? '∞' : i === 3 ? p.ult + '/' + AGENTS[p.agent].economy[3].points : p.charges[i]) +
         '<small>' +
@@ -4449,7 +4480,7 @@ function drawHud() {
   const scoped=watch.ads && scopeLevels[gun.id] && !watch.reloading;
   const steady=grounded(watch) && Math.hypot(watch.vx,watch.vz)<.45 && watch.bloom<.006;
   cross.hidden=p.down || screen!=='game' || (scoped && (!steady || !reticleProfile || gun.id==='tour'));
-  reticle(cross,reticleProfile,{color:settings.color,ads:watch.ads,sniper:!!scoped,
+  reticle(cross,reticleProfile,{ads:watch.ads,sniper:!!scoped,
     move:settings.dynamic?Math.max(0,spreadFor(weaponFor(p),meter,!grounded(p),false,0)-weaponFor(p).spread)*140:0,
     fire:settings.dynamic?p.bloom*140:0});
   const core = match.core;
@@ -4535,7 +4566,7 @@ function drawHud() {
     (p.deafUntil>now?'<strong class="field-alert scanned">청각 차단</strong>':'') +
     (p.hinderedUntil>now?'<strong class="field-alert chilled">방해</strong>':
       Math.max(p.iceUntil,p.slowUntil)>now?'<strong class="field-alert chilled">둔화</strong>':'') +
-    (line ? '<span>' + escape(line) + '</span>' : '') +
+    (line ? '<span>' + escape(keyHint(line)) + '</span>' : '') +
     (core.actor === p
       ? '<progress aria-label="스파이크 작업 진행률" max="' +
         (core.state === 'planted' ? TIMES.defuse : TIMES.plant) +
@@ -4580,6 +4611,7 @@ const heading = (eyebrow, title) => '<span class="eyebrow">' + eyebrow + '</span
 let selectDestination = 'range',
   settingsReturn = 'home';
 function show(target) {
+  settingsView?.dispose();settingsView=null;
   if(screen==='collection'){closeCollectionMotion?.();closeCollectionMotion=null;stopAnimationAudio();if(target!=='collection')previewWeapon(null)}
   screen = target;
   hud.hidden = target !== 'game';
@@ -4668,7 +4700,8 @@ function show(target) {
   if (target === 'ready' || target === 'pause')
     content =
       heading(practice() ? '연습' : playlist, target === 'ready' ? MAP_NAME : '게임 메뉴') +
-      '<p>WASD 이동 · Shift 무음 걷기 · Ctrl 앉기 · 좌클릭 기본 공격 · 우클릭 보조 공격 또는 조준<br>B 구매 · R 재장전 · 1/2/3 무기 · C/Q/E/X 스킬 · 4 또는 F 스파이크 · Tab 전광판</p><div class="row">' +
+      '<p>'+['KeyW','KeyA','KeyS','KeyD'].map(k=>keyName(settings.keys[k])).join('')+' 이동 · '+keyHint('Shift 무음 걷기 · Ctrl 앉기')+' · 좌클릭 기본 공격 · 우클릭 보조 공격 또는 조준<br>'+
+      [['KeyB','구매'],['KeyR','재장전'],['Digit1','주 무기'],['Digit2','보조 무기'],['Digit3','근접 무기'],['KeyF','상호작용'],['Tab','전광판']].map(([k,label])=>keyName(settings.keys[k])+' '+label).join(' · ')+'</p><div class="row">' +
       action('resume', '플레이', true) +
       action('unlocked', '잠금 없이 플레이') +
       (mode === 'range' ? action('range', '요원 변경') : '') +
@@ -4678,7 +4711,6 @@ function show(target) {
       '</div><small>잠금 없이 플레이할 때는 방향키 또는 우클릭 드래그로 조준합니다.</small>';
   if (target === 'shop') content = armory(match.player, selectedGun, practice() || dm());
   if (target === 'collection') content = collection(collectionGun, equipped, skinOptions,agentId);
-  if (target === 'settings') content = settingsForm(settings)+(isCustom() && match?customControls(room.host,match.cheats,match.player.ghost):'');
   if (target === 'results')
     content =
       heading('경기 종료', escape(match.winner) + ' 승리') +
@@ -4703,7 +4735,12 @@ function show(target) {
     const id=equipped[collectionGun];
     previewWeapon(get('weapon-turntable'),collectionGun,skinProfile(skinCatalog[collectionGun]?.find(v=>v.id===id),skinOptions[id]));
   }
-  if(target==='settings')reticle(get('reticle-preview'),reticleProfile,{color:settings.color});
+  if(target==='settings'){
+    settingsView=settingsPanel({s:settings,save:savePreferences,close:()=>show(settingsReturn),voice,
+      custom:()=>isCustom() && match?customControls(room.host,match.cheats,match.player.ghost):'',preview:previewAudio,
+      fullscreen:()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()},settingsPage);
+    menu.querySelector('.panel').prepend(settingsView.root);
+  }
 }
 function purchase(p, id) {
   if (p.down || rush() || (!practice() && !dm() && match.phase !== 'buy')) return;
@@ -4741,6 +4778,7 @@ function buy(id) {
   show('shop');
 }
 function releaseControls() {
+  voice.stop();
   keys.clear();
   ads = false;
   disarm();
@@ -4750,6 +4788,7 @@ function releaseControls() {
   if (document.pointerLockElement === canvas) document.exitPointerLock();
 }
 function beginControls(useUnlocked) {
+  void voice.route().catch(()=>{});
   paused = false;
   unlocked = useUnlocked;
   notice = '';
@@ -4772,6 +4811,7 @@ function lockError() {
   show('pause');
 }
 function home() {
+  voice.reset();
   stopAnimationAudio();
   transition++;
   const previousRoom = room;
@@ -4790,6 +4830,7 @@ function home() {
 }
 const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
 function roomEvent(type, data) {
+  if(type==='voice'){voice.receive(data);return;}
   if (type === 'closed') {
     home();
     notice = String(data);
@@ -4901,6 +4942,7 @@ async function load(roster) {
   world?.dispose();
   setArena(map);
   world = createWorld(canvas, data);
+  world.configureGraphics(settings);hud.classList.toggle('vignette',settings.vignette);
   drawBase();
   buildMatch(roster);
   get('load-meter').innerHTML = meter(80, '전장 준비');
@@ -5106,7 +5148,7 @@ function receiveState(s) {
       sound('inspect');
     }
     if (p.reloading > now && p.reloading !== reloadPrev) sound('reload', p.local ? undefined : p);
-    if (p.local && p.kills > killsPrev && !killBanner(p.lastKill, settings.volume)) sound('kill');
+    if (p.local && p.kills > killsPrev && !killBanner(p.lastKill, volumeFor('interfaceVolume'))) sound('kill');
     if (entry.stepCount > steps) footSound(p,p.stepSurface==='ice');
     if (p.local && entry.hits > hits) {
       match.hit = now + 0.12;
@@ -5132,9 +5174,9 @@ function receiveState(s) {
     presentFieldCue(copy);
     copy.mesh.position.set(copy.x, copy.y + copy.h / 2, copy.z);
   }
-  if(screen==='settings' && isCustom()){
+  if(screen==='settings' && settingsPage.page==='general' && isCustom()){
     const old=menu.querySelector('.custom-game-controls'),next=customControls(false,match.cheats,match.player.ghost);
-    if(!old && next)menu.querySelector('.panel').insertAdjacentHTML('beforeend',next);
+    if(!old && next)menu.querySelector('.pref-sheet').insertAdjacentHTML('beforeend',next);
     else if(old && !next)old.remove();
     else if(old && old.querySelector('[data-custom="ghost"]')?.getAttribute('aria-pressed')!==String(!!match.player.ghost))old.outerHTML=next;
   }
@@ -5204,11 +5246,11 @@ menu.addEventListener('click', async (event) => {
     const id=equipped[collectionGun],skin=skinProfile(skinCatalog[collectionGun]?.find(x=>x.id===id),skinOptions[id]);
     const area=get('weapon-turntable');soundOn();prepareSkin(skin,audio);
     closeCollectionMotion=collectionMotion(area,collectionGun,skin,agentId,d.preview,duration=>{
-      if(!audio || !settings.volume)return;
-      if(!playSkinEvent(skin,d.preview,duration,settings.volume*.82,audio,collectionGun,0,Infinity)){
-        if(d.preview==='reload'||d.preview==='shot')playBase(audio,collectionGun,d.preview,settings.volume*.82,0);
-        else if(d.preview==='light'||d.preview==='heavy')recordedEffect('knife-'+d.preview,settings.volume*.82);
-        else playHandling(audio,d.preview,settings.volume*.82);
+      if(!audio || !volumeFor('effects'))return;
+      if(!playSkinEvent(skin,d.preview,duration,volumeFor('effects')*.82,audio,collectionGun,0,Infinity)){
+        if(d.preview==='reload'||d.preview==='shot')playBase(audio,collectionGun,d.preview,volumeFor('effects')*.82,0);
+        else if(d.preview==='light'||d.preview==='heavy')recordedEffect('knife-'+d.preview,volumeFor('effects')*.82);
+        else playHandling(audio,d.preview,volumeFor('effects')*.82);
       }
     });
     for(const btn of menu.querySelectorAll('[data-preview]'))btn.setAttribute('aria-pressed',String(btn===b));
@@ -5313,22 +5355,12 @@ menu.addEventListener('click', async (event) => {
       journalChapter=d.action.slice(8);show('secrets');break;
     case 'secrets-back':show(journalReturn);break;
     case 'settings':
-      settingsReturn = match ? 'pause' : 'home';
+      settingsReturn = screen;
       show('settings');
       break;
     case 'settings-back':
       show(settingsReturn);
       break;
-    case 'import-reticle':
-    case 'reset-reticle': {
-      const code=d.action==='import-reticle'?get('crosshair-code').value.trim():'';
-      const parsed=parseCrosshair(code);
-      if(d.action==='import-reticle' && !parsed){get('reticle-result').textContent='코드 형식을 확인해 주세요.';break}
-      settings.crosshairCode=code;reticleProfile=parsed;save('settings',settings);
-      get('crosshair-code').value=code;reticle(get('reticle-preview'),parsed,{color:settings.color});
-      get('reticle-result').textContent=code?'조준점 코드를 적용했습니다.':'기본 조준점을 적용했습니다.';
-      break;
-    }
     case 'back-game':
       closeShop();
       break;
@@ -5374,17 +5406,8 @@ menu.addEventListener('change', (e) => {
     show('collection');
   }
 });
-menu.addEventListener('input', (e) => {
-  const el = e.target;
-  if (!el.id.startsWith('s-')) return;
-  const key = el.id.slice(2);
-  settings[key] = el.type === 'checkbox' ? el.checked : el.type === 'range' ? Number(el.value) : el.value;
-  if (el.nextElementSibling?.tagName === 'OUTPUT') el.nextElementSibling.value = el.value;
-  get('crosshair').style.color = settings.color;
-  save('settings', settings);
-});
 window.addEventListener('keydown', (event) => {
-  const code = event.code;
+  const code=inputCode(settings,event.code);
   if (screen === 'shop' && !event.repeat && ['KeyB', 'Escape'].includes(code)) {
     event.preventDefault();
     closeShop();
@@ -5404,6 +5427,8 @@ window.addEventListener('keydown', (event) => {
     ].includes(code)
   )
     event.preventDefault();
+  if(!code)return;
+  if(code==='KeyV'||code==='KeyU'){event.preventDefault();if(!event.repeat)voice.speak(code==='KeyV'?'team':'party');return;}
   keys.add(code);
   if (event.repeat) return;
   if (code === 'Escape' && unlocked) {
@@ -5549,13 +5574,15 @@ window.addEventListener('keydown', (event) => {
   }
 });
 window.addEventListener('keyup', (event) => {
-  if(event.code==='KeyX')pitDismissAt=0;
-  if(heldRecall?.code===event.code){
+  const code=inputCode(settings,event.code);
+  if(code==='KeyV'||code==='KeyU')voice.release(code==='KeyV'?'team':'party');
+  if(code==='KeyX')pitDismissAt=0;
+  if(heldRecall?.code===code){
     if(screen==='game' && performance.now()-heldRecall.start>=380)command('recall-tech',heldRecall.i);
     heldRecall=null;
   }
-  keys.delete(event.code);
-  if (event.code === 'KeyC' && match?.player.agent === '제트') match.player.guiding = false;
+  keys.delete(code);
+  if(code==='KeyC' && match?.player.agent==='제트')match.player.guiding=false;
 });
 window.addEventListener('blur', () => {
   if (screen !== 'game') return;
@@ -5720,7 +5747,8 @@ window.addEventListener('mousemove', (event) => {
     if (!secondaryPress.moved) return;
   }
   if (document.pointerLockElement !== canvas && !dragging) return;
-  look(event.movementX * 0.0021 * settings.sens, event.movementY * 0.0021 * settings.sens);
+  const scale=.0021*settings.sens*(ads?settings.adsSens:1);
+  look(event.movementX*scale,event.movementY*scale*(settings.invert?-1:1));
 });
 document.addEventListener('pointerlockerror', lockError);
 document.addEventListener('pointerlockchange', () => {
@@ -5734,7 +5762,6 @@ document.addEventListener('pointerlockchange', () => {
   show('pause');
 });
 try {
-  get('crosshair').style.color = settings.color;
   show('home');
   const query = new URLSearchParams(location.search);
   const requestedMap = query.get('map');
@@ -5757,9 +5784,15 @@ try {
     mode = 'range';
     selectDestination = 'range';
     void load();
+  }else if(query.has('settings')){
+    const route=query.get('settings');
+    if(route==='crosshair'){settingsPage.page='cross';settingsPage.sub.cross='library';}
+    else if(route==='graphics'){settingsPage.page='video';settingsPage.sub.video='quality';}
+    else if(route==='voice'){settingsPage.page='audio';settingsPage.sub.audio='voice';}
+    show('settings');
   }
   let previous = performance.now();
-  let carry = 0;
+  let carry = 0,lastDraw=0,statsStart=0,draws=0;
   function frame(time) {
     if(pitDismissAt && time>=pitDismissAt){pitDismissAt=0;if(screen==='game')command('close-pit');}
     if (document.hidden && room?.host) {
@@ -5786,8 +5819,18 @@ try {
       }
       networkFrame(time);
       if(match && screen!=='loading'){
-        if(screen==='game')world.frameBudget(time,elapsed);
-        if(world.gpuReady()){drawWorld(time);world.submitted()}
+        if(screen==='game' && !settings.fpsCap)world.frameBudget(time,elapsed);
+        const interval=settings.fpsCap?1000/settings.fpsCap:0,delta=time-lastDraw;
+        if((!interval || delta>=interval-.4) && world.gpuReady()){
+          lastDraw=interval && delta<interval*3?time-Math.max(0,delta-interval):time;
+          drawWorld(time);world.submitted();draws++;
+        }
+        if(time-statsStart>=550){
+          const el=get('perf-readout'),ms=(time-statsStart)/Math.max(1,draws);
+          el.hidden=!(settings.showFps||settings.showFrame);
+          if(!el.hidden)el.textContent=[settings.showFps?Math.round(1000/ms)+' FPS':'',settings.showFrame?ms.toFixed(1)+' ms':''].filter(Boolean).join('  ·  ');
+          statsStart=time;draws=0;
+        }
       }
       if (time - hudAt > 45 && screen === 'game') {
         hudAt = time;

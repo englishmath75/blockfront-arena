@@ -9,12 +9,14 @@ export function worldResolution(renderer) {
   quad.frustumCulled=false;scene.add(quad);
   let target;
   return {
-    draw(ratio,drawMap){
-      if(ratio>=renderer.getPixelRatio()-.005){drawMap(null);return;}
+    draw(ratio,drawMap,samples=null){
+      if(samples===null && ratio>=renderer.getPixelRatio()-.005){drawMap(null);return;}
       renderer.getSize(size);
       const w=Math.max(1,Math.floor(size.x*ratio)),h=Math.max(1,Math.floor(size.y*ratio));
+      if(target && target.samples!==(samples??0)){target.dispose();target=null;}
       if(!target){
         target=new T.WebGLRenderTarget(w,h,{depthBuffer:true,generateMipmaps:false,minFilter:T.LinearFilter,magFilter:T.LinearFilter});
+        target.samples=samples??0;
         target.texture.colorSpace=T.SRGBColorSpace;material.map=target.texture;material.needsUpdate=true;
       }else if(target.width!==w || target.height!==h)target.setSize(w,h);
       const prior=renderer.getRenderTarget();

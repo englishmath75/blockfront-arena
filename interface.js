@@ -264,28 +264,6 @@ export function collection(gun, equipped, options = {},agent='제트') {
     '</div>'
   );
 }
-export function settingsForm(s) {
-  return (
-    '<h2>설정</h2><div class="settings-grid"><label>마우스 감도 <input id="s-sens" type="range" min=".1" max="3" step=".05" value="' +
-    s.sens +
-    '"><output>' +
-    s.sens +
-    '</output></label>' +
-    '<label>전체 음량 <input id="s-volume" type="range" min="0" max="1" step=".05" value="' +
-    s.volume +
-    '"><output>' +
-    s.volume +
-    '</output></label><label>조준점 색상 <input id="s-color" type="color" value="' +
-    s.color +
-    '"></label>' +
-    '<label>이동·사격 오차 표시 <input id="s-dynamic" type="checkbox" ' +
-    (s.dynamic ? 'checked' : '') +
-    '></label><label for="crosshair-code">발로란트 조준점 코드</label><a class="skin-reference" target="_blank" rel="noopener noreferrer" href="https://www.vcrdb.net/">조준점 코드 찾기 ↗</a><input id="crosshair-code" maxlength="700" spellcheck="false" placeholder="0;P;…" value="'+escape(s.crosshairCode??'')+'">' +
-    '<div class="reticle-preview"><canvas id="reticle-preview" width="160" height="160"></canvas><div>'+btn('import-reticle','코드 적용')+btn('reset-reticle','기본값')+'</div></div><output id="reticle-result" role="status"></output></div>' +
-    btn('settings-back', '돌아가기')
-  );
-}
-
 function skinPreviews(s) {
   if (!s) return '';
   const levels = s.levels ?? ['Model'];

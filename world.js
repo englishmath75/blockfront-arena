@@ -71,7 +71,7 @@ export function createWorld(canvas, data) {
   const fieldMaterials=[];
   const gl=renderer.getContext();
   const resolution=worldResolution(renderer);
-  let sceneRatio=maxRatio,presented=0;
+  let sceneRatio=maxRatio,presented=0,qualityMode='auto',filterKey='',samples=null;
   let frameFence=null;
   function gpuReady(){
     if(!frameFence)return true;
@@ -87,6 +87,7 @@ export function createWorld(canvas, data) {
   renderer.setPixelRatio(maxRatio);
   let windowStart=0,frameCount=0,fastWindows=0,slowWindows=0;
   function frameBudget(stamp,elapsed) {
+    if(qualityMode!=='auto')return;
     if (!windowStart || elapsed<=0) {windowStart=stamp;frameCount=0;presented=0;fastWindows=0;return;}
     frameCount++;
     if(stamp-windowStart<800)return;
@@ -486,6 +487,26 @@ export function createWorld(canvas, data) {
     mechanisms,
     updateMechanisms,
     frameBudget,gpuReady,submitted,
+    configureGraphics(s){
+      samples=s.antialias==='auto'?null:Math.min(renderer.capabilities.maxSamples,Number(s.antialias));
+      if(qualityMode!==s.quality){
+        qualityMode=s.quality;
+        const ceiling=Math.min(window.devicePixelRatio||1,1.6);
+        sceneRatio=qualityMode==='auto'?maxRatio:({low:.55,medium:.8,high:1})[qualityMode]*ceiling;
+        renderer.setPixelRatio(qualityMode==='auto'?maxRatio:Math.max(.65,sceneRatio));
+        windowStart=frameCount=presented=fastWindows=slowWindows=0;
+      }
+      const next=s.texture+'-'+s.anisotropy;
+      if(filterKey===next)return;
+      filterKey=next;
+      for(const texture of [data?.texture,...Object.values(terrain).map(m=>m.map)].filter(Boolean)){
+        texture.anisotropy=Math.min(renderer.capabilities.getMaxAnisotropy(),s.anisotropy);
+        texture.magFilter=s.texture==='nearest'?T.NearestFilter:T.LinearFilter;
+        texture.minFilter=texture.generateMipmaps?(s.texture==='nearest'?T.NearestMipmapNearestFilter:T.LinearMipmapLinearFilter):texture.magFilter;
+        texture.needsUpdate=true;
+      }
+      cachedView?.invalidate();
+    },
     async warmSpawn(player,isCurrent){
       if(!cachedView)return;
       const cam=camera.clone(),target=new T.WebGLRenderTarget(48,32);
@@ -511,7 +532,7 @@ export function createWorld(canvas, data) {
     scene,
     camera,
     renderer,
-    renderWorld(){resolution.draw(sceneRatio,drawMap);},
+    renderWorld(){resolution.draw(sceneRatio,drawMap,samples);},
     core,
     avatar,
     trace,

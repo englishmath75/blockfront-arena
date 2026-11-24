@@ -11,6 +11,7 @@ export function roomMiddleware() {
     code: room.code,
     map: room.map,
     mode: room.mode,
+    privateParty: !room.queue,
     started: room.started,
     minimumPlayers: minimumPlayers(room),
     connected: [...room.members.values()].filter(m=>m.stream).length,
@@ -70,7 +71,7 @@ export function roomMiddleware() {
           parts = [];
         for await (const part of req) {
           size += part.length;
-          if (size > (action==='state'?524288:120000)) return reply(413, { error: '메시지가 너무 큽니다.' });
+          if (size > (action==='state'?524288:action==='voice'?6200:120000)) return reply(413, { error: '메시지가 너무 큽니다.' });
           parts.push(part);
         }
         data = JSON.parse(Buffer.concat(parts).toString() || '{}');
@@ -162,6 +163,16 @@ export function roomMiddleware() {
         room.started = true;
         all(room, 'start', view(room));
       } else if (action === 'leave') leave(room, p);
+      else if(action==='voice'){
+        if(!['team','party'].includes(data.channel) || data.channel==='party' && room.queue || !room.started ||
+            !Number.isSafeInteger(data.sequence) || data.sequence<0 || typeof data.pcm!=='string' || data.pcm.length!==5120 || !/^[A-Za-z0-9+/]+$/.test(data.pcm))
+          return reply(400,{error:'음성 패킷을 확인하세요.'});
+        const stamp=Date.now();
+        if(!p.voiceWindow || stamp-p.voiceWindow>=1000){p.voiceWindow=stamp;p.voiceCount=0;}
+        if(++p.voiceCount>14)return reply(429,{error:'음성 전송이 너무 빠릅니다.'});
+        for(const member of room.members.values())if(member!==p && (data.channel==='party' || member.team===p.team) && member.stream && !member.stream.writableNeedDrain)
+          emit(member,'voice',{from:p.id,channel:data.channel,sequence:data.sequence,pcm:data.pcm});
+      }
       else if (action === 'input' && room.started) {
         const host = [...room.members.values()].find((m) => m.id === room.host);
         emit(host, 'input', { from: p.id, input: data.input });

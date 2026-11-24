@@ -36,6 +36,7 @@ export function staticView(renderer,scene,camera,scenery,sky,fields) {
   const clip=new T.Matrix4(), previous=new T.Matrix4(), size=new T.Vector2();
   let ready=false, fogNear=-1, fogFar=-1, fogColor=-1;
   return {
+    invalidate(){ready=false;},
     draw(output=null){
       camera.updateMatrixWorld();
       clip.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);

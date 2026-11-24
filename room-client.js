@@ -22,7 +22,7 @@ export class PlayerRoom {
     this.source = new EventSource(
       '/arena-api/events?' + new URLSearchParams({ code: this.room.code, key: this.token }),
     );
-    for (const type of ['room', 'start', 'input', 'state', 'closed'])
+    for (const type of ['room', 'start', 'input', 'state', 'voice', 'closed'])
       this.source.addEventListener(type, (event) => {
         const data = JSON.parse(event.data);
         if (type === 'room' || type === 'start') this.room = data;
